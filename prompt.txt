@@ -1,0 +1,70 @@
+Act as an expert Senior Software Engineer and UI/UX Designer. I need you to design and build a comprehensive, production-grade web application called "MaintLog Pro". This is a Digital Daily Maintenance Activity Report Logger designed to replace paper logbooks in industrial settings.
+
+### Project Overview
+The app mimics a physical daily report sheet used in factories. It tracks maintenance work across three shifts (Night, Morning, Evening) for a specific "Section" (e.g., Filling Dept) on a specific "Date".
+
+### Core Architectural Requirements
+
+1.  **Data Isolation by Section:**
+    - The user must be able to switch between different factory "Sections" (e.g., "Filling", "Packaging").
+    - **Crucial:** Every piece of data (Saved Reports, Machine Lists, Engineer Lists, Spare Parts Database) must be isolated per section. Changing the section must swap out the entire context.
+
+2.  **Data Structure Concept:**
+    - **Report:** Unique per Date and Section. Contains 3 Shifts.
+    - **Shift:** Contains a Title, a list of assigned Engineers, and a list of Log Entries.
+    - **Log Entry:** Represents a single maintenance task. Contains: Machine Name, Production Line, Work Description, Total Duration, Spare Parts Used (and Quantity), and Notes.
+
+3.  **Persistence:**
+    - The application must persist data so it survives page reloads. (e.g., LocalStorage, IndexedDB, or a Backend).
+
+### UI Layout & Features
+
+#### 1. Application Shell
+-   **Login Screen:** A simple authentication overlay.
+-   **Toolbar:** A floating or fixed bar containing global actions:
+    -   Save Data.
+    -   Clear Current Form.
+    -   Export to CSV.
+    -   Print/PDF Generation.
+    -   App Settings.
+    -   Logout.
+
+#### 2. The Report Header
+-   Displays the App Title.
+-   **Context Selectors:**
+    -   **Section:** Dropdown/Input to select the factory area. Must include a way to Manage Sections (Add/Edit/Delete).
+    -   **Date:** Date picker to load the specific report for that day.
+
+#### 3. Shift Sections (The Core View)
+-   The report is divided into three distinct visual sections: **Night**, **Morning**, and **Evening**.
+-   **Color Coding:** Each shift should have a distinct visual theme (e.g., Slate for Night, Yellow for Morning, Orange for Evening).
+-   **Shift Header:** Displays Shift Title and an input to select/assign Engineers (Multi-select).
+
+#### 4. The Log Grid (Data Entry)
+Each shift contains a dynamic table/grid where users log tasks. Columns include:
+1.  **Machine:** Auto-complete input. Must include a "Machine Manager" feature to Add/Edit/Delete machines in the database.
+2.  **Line:** (Optional/Configurable) Selector for Production Line number.
+3.  **Work Description:** Text area for details.
+4.  **Total Time:** Read-only field. Must include a **Time Calculator** tool that allows users to input start/end times (e.g., 10:00-11:00) and auto-calculates the duration.
+5.  **Spare Parts:** Read-only summary. Must include a **Spare Parts Database** tool.
+    -   *Spare Parts Tool Logic:* A modal to manage a library of parts (Name, Part Number) and select specific parts + quantities for the current task.
+6.  **Quantity:** Read-only summary of parts used.
+7.  **Notes:** Additional text area.
+8.  **Actions:** Ability to delete the row.
+
+### Customization & Settings
+The app should include a settings menu to configure:
+-   **Visual Theme:** Color palettes.
+-   **Typography:** Font families and sizes.
+-   **Display:** Toggle visibility of specific columns (e.g., hide "Line" or "Time").
+-   **Print Mode:** Options to compact the layout for printing.
+
+### Printing Requirements
+-   **High Priority:** The app must render a specific "Print View" when the print function is triggered.
+-   The print view must look like a formal document (A4 Landscape).
+-   Hide all UI controls (buttons, icons, toolbars).
+-   Remove shadows/backgrounds to save ink.
+-   Ensure borders are sharp and high-contrast.
+
+### Deliverable
+Produce the complete source code using a modern frontend technology stack of your choice. Ensure the code is modular, robust, and handles edge cases (like missing data) gracefully.

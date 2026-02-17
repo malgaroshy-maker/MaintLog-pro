@@ -1,0 +1,74 @@
+Act as an expert Senior Windows Application Developer and Software Architect.
+
+I need you to design and build a professional Windows Desktop Application (.exe) called **"MaintLog Pro"** from scratch.
+
+### PROJECT GOAL
+Build a standalone digital logbook for industrial maintenance teams to track daily activities. It must replace physical paper logbooks. The final output must be a compiled, installable, or portable Windows executable (e.g., using C# WPF/WinUI, Python PyQt, Rust Tauri, or similar). **You choose the best stack.**
+
+### FUNCTIONAL SPECIFICATION
+
+#### 1. Core Architecture: "The Section System"
+The application must handle multiple factory areas (called "Sections").
+*   **Context Switching:** The user selects a **Section** (e.g., "Filling Line", "Packaging") and a **Date** at the top of the app.
+*   **Data Isolation:** changing the "Section" must swap the entire database context.
+    *   *Example:* The list of "Machines" available in the "Filling" section is completely different from the "Packaging" section.
+    *   *Example:* The "Spare Parts Database" is isolated per section.
+*   **Management:** Users must be able to Add, Rename, and Delete Sections.
+
+#### 2. The Report Structure (The Main View)
+The main view represents a single day's report. It is vertically divided into three **Shifts**:
+1.  **Night Shift** (Visual Theme: Dark Slate/Blue)
+2.  **Morning Shift** (Visual Theme: Yellow/Gold)
+3.  **Evening Shift** (Visual Theme: Orange/Sunset)
+
+**Per Shift:**
+*   Display the Shift Title.
+*   **Engineer Selection:** A multi-select dropdown to assign engineers to that specific shift. (Engineers are managed in a list per Section).
+*   **The Log Grid:** A dynamic table where users add rows for every maintenance task performed.
+
+#### 3. The Log Grid Features (Crucial)
+Each row in the grid represents a task and must have these specific columns/features:
+
+*   **Machine Column:** A dropdown to select which machine was worked on.
+    *   *Feature:* Include a "Manage Machines" button to Add/Edit/Delete machines from the dropdown list.
+*   **Line Column:** A multi-select popup to choose Production Line numbers (e.g., "Line 1, Line 3").
+*   **Description:** A text field for the work description.
+*   **Total Time (Calculator Tool):**
+    *   This field is Read-Only.
+    *   *Feature:* Clicking it opens a **Time Calculator Popup**.
+    *   *Logic:* User enters multiple intervals (e.g., 09:00-10:00 AND 14:00-14:30). The app sums them up (e.g., "1h 30m") and inserts the total into the grid.
+*   **Spare Parts (Database Tool):**
+    *   This field is Read-Only.
+    *   *Feature:* Clicking it opens a **Spare Parts Manager Modal**.
+    *   *Modal Layout:* Split view.
+        *   *Left Pane (Database):* A searchable list of all parts (Name, Part Number). Includes buttons to Create New Part, Edit Part, Delete Part.
+        *   *Right Pane (Selected):* The parts selected for *this specific task* and the quantity used.
+*   **Notes:** A text field for remarks.
+*   **Actions:** Button to delete the row.
+
+#### 4. Data Persistence (Offline)
+*   The app must run 100% offline.
+*   Data must be saved to the local file system (e.g., SQLite database or JSON files in `%APPDATA%`).
+*   Auto-save functionality is preferred.
+
+#### 5. Output & Reporting
+*   **Printing:** The app must have a "Print Report" button.
+    *   It must generate a clean, professional **A4 Landscape** layout.
+    *   It must strip away UI buttons (like "Add Row", "Settings") and print only the data tables with high-contrast borders.
+*   **CSV Export:** Button to export the current day's data to Excel/CSV.
+
+#### 6. Settings & Customization
+*   **Theme:** Allow users to change the color palette of the app.
+*   **Typography:** Allow users to change font size (Small/Medium/Large).
+*   **Compact Mode:** An option to reduce row height for fitting more data on the screen.
+
+### DESIGN AESTHETIC
+The app should look like a modern industrial tool. Clean lines, clear typography (Inter/Roboto), and high contrast. It should NOT look like a default Windows 98 app. Use modern UI libraries suitable for the chosen tech stack.
+
+### YOUR TASK
+1.  **Select the Stack:** Choose the best language and framework to build this as a standalone Windows .exe. Explain your choice.
+2.  **File Structure:** List the files you will generate.
+3.  **Code:** Write the **complete** source code for the application.
+4.  **Build Guide:** Provide specific commands to compile the code into a `MaintLogPro.exe` file.
+
+**Go.**

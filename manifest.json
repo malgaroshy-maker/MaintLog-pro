@@ -1,0 +1,17 @@
+{
+  "name": "MaintLog Pro",
+  "short_name": "MaintLog",
+  "description": "Digital Daily Maintenance Activity Report Logger",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#00b0f0",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2921/2921226.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

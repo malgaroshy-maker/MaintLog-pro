@@ -1,0 +1,884 @@
+import React, { useState, useEffect, useRef } from 'react';
+import ShiftSection from './components/ShiftSection';
+import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings } from './types';
+import { Printer, Save, Trash2, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Menu, Calendar, Briefcase, Eye, Layout } from 'lucide-react';
+
+const INITIAL_ROWS = 5;
+const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
+const DEFAULT_SECTIONS = ['Filling and Downstream'];
+
+const DEFAULT_SUGGESTIONS = [
+  "Inspection", "Cleaning", "Lubrication", "Tightening", "Adjustment", 
+  "Testing", "Calibration", "Replacement", "Repair", "Overhaul", 
+  "Installation", "Dismantling", "Assembly", "Monitoring",
+  "Bearing Replacement", "Sensor Alignment", "Motor Inspection", 
+  "Belt Tensioning", "Filter Cleaning", "Oil Level Check", 
+  "Chain Adjustment", "Gearbox Check", "Electrical Fault Finding", 
+  "Fuse Replacement", "Contactor Replacement", "Emergency Stop Reset", 
+  "Guard Repair", "Leakage Fix", "Software Parameter Change", "Jam Removal"
+];
+
+const THEMES = {
+  blue: { primary: '#305496', accent: '#4472c4', name: 'Classic Blue' },
+  green: { primary: '#15803d', accent: '#22c55e', name: 'Emerald Green' },
+  slate: { primary: '#334155', accent: '#64748b', name: 'Slate Grey' },
+  purple: { primary: '#6b21a8', accent: '#a855f7', name: 'Royal Purple' },
+  orange: { primary: '#c2410c', accent: '#fb923c', name: 'Burnt Orange' },
+  red: { primary: '#991b1b', accent: '#ef4444', name: 'Crimson Red' },
+  midnight: { primary: '#1e293b', accent: '#334155', name: 'Midnight' }
+};
+
+const SHIFT_TITLE_COLORS = {
+  night: '#94a3b8',   // Darker Slate (Slate 400)
+  morning: '#fef08a', // Yellow 200
+  evening: '#fed7aa'  // Orange 200
+};
+
+const FONT_SIZES = {
+  small: 'text-[11px]',
+  medium: 'text-[12px]',
+  large: 'text-[14px]',
+  xl: 'text-[16px]'
+};
+
+const FONT_FAMILIES = {
+  'Inter': 'font-inter',
+  'Roboto': 'font-roboto',
+  'Open Sans': 'font-[Open_Sans]',
+  'Lato': 'font-[Lato]',
+  'Courier Prime': 'font-[Courier_Prime]'
+};
+
+const createEmptyShift = (id: 'night' | 'morning' | 'evening', title: string): ShiftData => ({
+  id,
+  title,
+  engineers: '',
+  entries: Array.from({ length: INITIAL_ROWS }, () => ({ ...INITIAL_ENTRY, id: crypto.randomUUID() }))
+});
+
+// Updated storage key to include section
+const getStorageKey = (date: string, section: string) => `maintlog_report_${date}_${section}`;
+
+const INITIAL_DATA_STRUCT: ReportData = {
+  section: 'Filling and Downstream',
+  date: new Date().toISOString().split('T')[0],
+  shifts: {
+    night: createEmptyShift('night', 'Night shift report'),
+    morning: createEmptyShift('morning', 'Morning shift report'),
+    evening: createEmptyShift('evening', 'Evening shift report'),
+  }
+};
+
+const App: React.FC = () => {
+  // Login State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('isLoggedIn') === 'true';
+  });
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  // Settings State
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('appSettings');
+    return saved ? JSON.parse(saved) : { 
+        fontSize: 'medium', 
+        theme: 'blue', 
+        fontFamily: 'Inter', 
+        compactMode: false,
+        confirmDeleteRow: true,
+        enableSpellCheck: false,
+        showLineColumn: true,
+        showTimeColumn: true
+    };
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Sections List
+  const [sections, setSections] = useState<string[]>(() => {
+    const saved = localStorage.getItem('sections');
+    return saved ? JSON.parse(saved) : DEFAULT_SECTIONS;
+  });
+
+  // Selection State (Controls which report is loaded)
+  const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [currentSection, setCurrentSection] = useState(() => {
+     return localStorage.getItem('lastActiveSection') || DEFAULT_SECTIONS[0];
+  });
+
+  // App Data State (The currently loaded report)
+  const [report, setReport] = useState<ReportData>(INITIAL_DATA_STRUCT);
+  
+  // Learned Suggestions State
+  const [learnedSuggestions, setLearnedSuggestions] = useState<string[]>(() => {
+    const saved = localStorage.getItem('maintlog_learned_suggestions');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Print State
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printFilter, setPrintFilter] = useState<'all' | 'night' | 'morning' | 'evening'>('all');
+  
+  // Per-Section Database States
+  const [machines, setMachines] = useState<string[]>([]);
+  const [availableEngineers, setAvailableEngineers] = useState<string[]>([]);
+  const [sparePartsDB, setSparePartsDB] = useState<SparePart[]>([]);
+
+  // Section Manager State
+  const [sectionManagerOpen, setSectionManagerOpen] = useState(false);
+  const [newSectionName, setNewSectionName] = useState('');
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editSectionName, setEditSectionName] = useState('');
+
+  // Auto-save Reference
+  const reportRef = useRef(report);
+  const isDirtyRef = useRef(false);
+
+  // Save settings
+  useEffect(() => {
+    localStorage.setItem('appSettings', JSON.stringify(settings));
+  }, [settings]);
+
+  // Persist last active section
+  useEffect(() => {
+    localStorage.setItem('lastActiveSection', currentSection);
+  }, [currentSection]);
+
+  // Update ref whenever report changes
+  useEffect(() => {
+    reportRef.current = report;
+    isDirtyRef.current = true;
+  }, [report]);
+
+  // Auto-save interval (every 5 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isDirtyRef.current) {
+        saveCurrentReport(reportRef.current);
+        isDirtyRef.current = false;
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Load Data when Date or Section Changes
+  useEffect(() => {
+    loadReportAndConfig(currentDate, currentSection);
+  }, [currentDate, currentSection]);
+
+  const loadReportAndConfig = (date: string, section: string) => {
+    // 1. Load Section Config (Machines, Engineers, Parts)
+    loadSectionConfig(section);
+
+    // 2. Load Report Data
+    const specificKey = getStorageKey(date, section);
+    const savedSpecific = localStorage.getItem(specificKey);
+
+    if (savedSpecific) {
+        try {
+            setReport(JSON.parse(savedSpecific));
+            // Reset dirty flag after loading to prevent immediate save
+            isDirtyRef.current = false;
+            return;
+        } catch (e) { console.error(e); }
+    }
+
+    // Migration Support: Check for legacy single-report format
+    // If a report exists for this date in the old format AND matches the current section, use it.
+    const legacyKey = `maintlog_report_${date}`;
+    const savedLegacy = localStorage.getItem(legacyKey);
+    if (savedLegacy) {
+        try {
+            const legacyData = JSON.parse(savedLegacy);
+            if (legacyData.section === section) {
+                setReport(legacyData);
+                // Auto-migrate to new key structure
+                localStorage.setItem(specificKey, savedLegacy);
+                return;
+            }
+        } catch(e) { console.error(e); }
+    }
+
+    // Initialize New Report for this Date + Section
+    setReport({
+        section: section,
+        date: date,
+        shifts: {
+            night: createEmptyShift('night', 'Night shift report'),
+            morning: createEmptyShift('morning', 'Morning shift report'),
+            evening: createEmptyShift('evening', 'Evening shift report'),
+        }
+    });
+    // Reset dirty flag for new report
+    isDirtyRef.current = false;
+  };
+
+  const migrateLegacyData = (sectionName: string) => {
+    if (!localStorage.getItem(`machines_${sectionName}`) && localStorage.getItem('machines')) {
+        localStorage.setItem(`machines_${sectionName}`, localStorage.getItem('machines')!);
+    }
+    if (!localStorage.getItem(`availableEngineers_${sectionName}`) && localStorage.getItem('availableEngineers')) {
+        localStorage.setItem(`availableEngineers_${sectionName}`, localStorage.getItem('availableEngineers')!);
+    }
+    if (!localStorage.getItem(`sparePartsDB_${sectionName}`) && localStorage.getItem('sparePartsDB')) {
+        localStorage.setItem(`sparePartsDB_${sectionName}`, localStorage.getItem('sparePartsDB')!);
+    }
+  };
+
+  const loadSectionConfig = (sectionName: string) => {
+      if (sectionName === 'Filling and Downstream') {
+          migrateLegacyData(sectionName);
+      }
+      const m = localStorage.getItem(`machines_${sectionName}`);
+      setMachines(m ? JSON.parse(m) : DEFAULT_MACHINES);
+      const e = localStorage.getItem(`availableEngineers_${sectionName}`);
+      setAvailableEngineers(e ? JSON.parse(e) : ['Mahamed Algaroshy']);
+      const s = localStorage.getItem(`sparePartsDB_${sectionName}`);
+      setSparePartsDB(s ? JSON.parse(s) : []);
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if ((loginUser === 'user' && loginPass === 'pass') || (loginUser === 'admin' && loginPass === 'admin')) {
+        setIsAuthenticated(true);
+        localStorage.setItem('isLoggedIn', 'true');
+        setLoginError('');
+    } else {
+        setLoginError('Invalid credentials');
+    }
+  };
+
+  const handleLogout = () => {
+      setIsAuthenticated(false);
+      localStorage.removeItem('isLoggedIn');
+      setLoginUser('');
+      setLoginPass('');
+  };
+
+  const saveCurrentReport = (data: ReportData) => {
+      // Use the date/section from the report data to save
+      const key = getStorageKey(data.date, data.section);
+      localStorage.setItem(key, JSON.stringify(data));
+  };
+
+  const saveMachines = (newMachines: string[]) => {
+    setMachines(newMachines);
+    localStorage.setItem(`machines_${currentSection}`, JSON.stringify(newMachines));
+  };
+
+  const saveSparePartsDB = (newDB: SparePart[]) => {
+    setSparePartsDB(newDB);
+    localStorage.setItem(`sparePartsDB_${currentSection}`, JSON.stringify(newDB));
+  };
+
+  const handleAddEngineer = (name: string) => {
+    if (name && !availableEngineers.includes(name)) {
+      const updated = [...availableEngineers, name];
+      setAvailableEngineers(updated);
+      localStorage.setItem(`availableEngineers_${currentSection}`, JSON.stringify(updated));
+    }
+  };
+
+  const handleDeleteEngineer = (name: string) => {
+    const updated = availableEngineers.filter(n => n !== name);
+    setAvailableEngineers(updated);
+    localStorage.setItem(`availableEngineers_${currentSection}`, JSON.stringify(updated));
+  };
+
+  const saveSections = (newSections: string[]) => {
+    setSections(newSections);
+    localStorage.setItem('sections', JSON.stringify(newSections));
+  };
+
+  const handleAddSection = () => {
+    if (newSectionName.trim() && !sections.includes(newSectionName.trim())) {
+        saveSections([...sections, newSectionName.trim()]);
+        setNewSectionName('');
+    }
+  };
+
+  const handleEditSection = (oldName: string) => {
+      if (editSectionName.trim() && editSectionName.trim() !== oldName) {
+          const newName = editSectionName.trim();
+          if (sections.includes(newName)) {
+              alert('Section name already exists');
+              return;
+          }
+          const updatedSections = sections.map(s => s === oldName ? newName : s);
+          saveSections(updatedSections);
+          
+          // Migrate database configurations
+          const migrateKey = (keyPrefix: string) => {
+              const oldData = localStorage.getItem(`${keyPrefix}_${oldName}`);
+              if (oldData) {
+                  localStorage.setItem(`${keyPrefix}_${newName}`, oldData);
+                  localStorage.removeItem(`${keyPrefix}_${oldName}`);
+              }
+          };
+          migrateKey('machines');
+          migrateKey('availableEngineers');
+          migrateKey('sparePartsDB');
+
+          // If current section is the one being renamed, update selection
+          if (currentSection === oldName) {
+              setCurrentSection(newName);
+          }
+          setEditingSection(null);
+          setEditSectionName('');
+      }
+  };
+
+  const handleDeleteSection = (name: string) => {
+    if (name === 'Filling and Downstream') {
+        alert("Cannot delete default section.");
+        return;
+    }
+    if (confirm(`Delete section "${name}" and all its database settings?`)) {
+        saveSections(sections.filter(s => s !== name));
+        localStorage.removeItem(`machines_${name}`);
+        localStorage.removeItem(`availableEngineers_${name}`);
+        localStorage.removeItem(`sparePartsDB_${name}`);
+        
+        // If deleting active section, fallback to default
+        if (currentSection === name) {
+            setCurrentSection('Filling and Downstream');
+        }
+    }
+  };
+
+  const updateShift = (shiftId: 'night' | 'morning' | 'evening', data: ShiftData) => {
+    setReport(prev => ({
+      ...prev,
+      shifts: { ...prev.shifts, [shiftId]: data }
+    }));
+  };
+
+  const handleSave = () => {
+    saveCurrentReport(report);
+    alert('Report saved to local storage!');
+  };
+
+  const handlePrintRequest = () => {
+    setPrintModalOpen(true);
+  };
+
+  const executePrint = (filter: 'all' | 'night' | 'morning' | 'evening') => {
+      setPrintFilter(filter);
+      setTimeout(() => {
+          window.print();
+          setPrintModalOpen(false);
+          setPrintFilter('all');
+      }, 100);
+  };
+
+  const handleExportCSV = () => {
+      const rows = [['Date', 'Section', 'Shift', 'Machine', 'Line', 'Description', 'Total Time', 'Spare Parts', 'Qty', 'Notes']];
+      (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
+          const shift = report.shifts[shiftKey];
+          shift.entries.forEach(entry => {
+              if (entry.description || entry.machine) {
+                  rows.push([
+                      report.date,
+                      report.section,
+                      shift.title,
+                      `"${(entry.machine || '').replace(/"/g, '""')}"`,
+                      `"${(entry.line || '').replace(/"/g, '""')}"`,
+                      `"${(entry.description || '').replace(/"/g, '""')}"`,
+                      `"${(entry.totalTime || '').replace(/"/g, '""')}"`,
+                      `"${(entry.spareParts || '').replace(/\n/g, '; ').replace(/"/g, '""')}"`,
+                      `"${(entry.quantity || '').replace(/\n/g, '; ').replace(/"/g, '""')}"`,
+                      `"${(entry.notes || '').replace(/"/g, '""')}"`
+                  ]);
+              }
+          });
+      });
+      const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `MaintLog_${report.date}_${report.section}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  const handleClear = () => {
+    if(confirm("Are you sure you want to clear the form? This will overwrite the current entry.")) {
+        const freshReport: ReportData = {
+            section: currentSection,
+            date: currentDate,
+            shifts: {
+                night: createEmptyShift('night', 'Night shift report'),
+                morning: createEmptyShift('morning', 'Morning shift report'),
+                evening: createEmptyShift('evening', 'Evening shift report'),
+            }
+        };
+        setReport(freshReport);
+        localStorage.removeItem(getStorageKey(currentDate, currentSection));
+    }
+  };
+
+  // Learning Mechanism
+  const handleLearnSuggestion = (text: string) => {
+      const cleanText = text.trim();
+      if (!cleanText || cleanText.length < 3) return; // Ignore empty or very short words
+
+      // Case insensitive check to prevent duplicates
+      const lowerDefaults = DEFAULT_SUGGESTIONS.map(s => s.toLowerCase());
+      const lowerLearned = learnedSuggestions.map(s => s.toLowerCase());
+
+      if (!lowerDefaults.includes(cleanText.toLowerCase()) && !lowerLearned.includes(cleanText.toLowerCase())) {
+          const newLearned = [...learnedSuggestions, cleanText].sort();
+          setLearnedSuggestions(newLearned);
+          localStorage.setItem('maintlog_learned_suggestions', JSON.stringify(newLearned));
+      }
+  };
+
+  // Compute suggestions including history
+  const getSuggestions = () => {
+    const unique = new Set([...DEFAULT_SUGGESTIONS, ...learnedSuggestions]);
+    // Also include what is currently on screen for immediate consistency
+    (Object.values(report.shifts) as ShiftData[]).forEach(shift => {
+        shift.entries.forEach(e => {
+            if(e.description && e.description.trim()) {
+                unique.add(e.description.trim());
+            }
+        })
+    });
+    return Array.from(unique).sort();
+  };
+
+  const suggestions = getSuggestions();
+
+  // --- LOGIN SCREEN ---
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-inter">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md flex flex-col border border-slate-100">
+           <div className="flex justify-center mb-6">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl shadow-lg transform rotate-3">
+                 <Lock className="text-white" size={32} />
+              </div>
+           </div>
+           <h1 className="text-3xl font-bold text-center mb-2 text-slate-800 tracking-tight">MaintLog Pro</h1>
+           <p className="text-center text-slate-500 mb-8 text-sm">Industrial Digital Maintenance Logger</p>
+           
+           <form onSubmit={handleLogin} className="flex-grow space-y-4">
+              <div>
+                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Username</label>
+                 <input 
+                   className="w-full bg-black border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm font-medium text-white placeholder-gray-500"
+                   type="text"
+                   value={loginUser}
+                   onChange={e => setLoginUser(e.target.value)}
+                   placeholder="Enter username"
+                 />
+              </div>
+              <div>
+                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Password</label>
+                 <input 
+                   className="w-full bg-black border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm font-medium text-white placeholder-gray-500"
+                   type="password"
+                   value={loginPass}
+                   onChange={e => setLoginPass(e.target.value)}
+                   placeholder="Enter password"
+                 />
+              </div>
+              {loginError && <div className="text-red-500 text-sm text-center font-medium bg-red-50 p-2 rounded-lg">{loginError}</div>}
+              <button className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-md hover:shadow-lg mt-2">
+                 Login to System
+              </button>
+           </form>
+           
+           <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+              <p className="text-xs text-slate-400">Developed by</p>
+              <p className="font-bold text-slate-700">Mahamed Algaroshy</p>
+              <p className="text-[10px] text-slate-400 mt-2">v2.0.0 • 2026</p>
+           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- MAIN APP ---
+  const currentTheme = THEMES[settings.theme];
+  const fontSizeClass = FONT_SIZES[settings.fontSize];
+  const fontFamilyClass = FONT_FAMILIES[settings.fontFamily] || 'font-inter';
+
+  return (
+    <div className={`min-h-screen bg-slate-50 print:bg-white ${fontSizeClass} ${fontFamilyClass}`}>
+      
+      {/* Settings Modal */}
+      {settingsOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-96 p-6 max-h-[90vh] overflow-y-auto transform transition-all">
+             <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800"><Sliders size={20}/> App Settings</h3>
+                <button onClick={() => setSettingsOpen(false)} className="text-slate-400 hover:text-slate-700 transition-colors"><X size={20}/></button>
+             </div>
+             
+             {/* ... Settings Content ... */}
+             <div className="space-y-6">
+                 <div>
+                   <label className="block text-sm font-bold text-slate-700 mb-2">Color Palette</label>
+                   <div className="grid grid-cols-3 gap-2">
+                     {(Object.keys(THEMES) as Array<keyof typeof THEMES>).map(theme => (
+                       <button 
+                         key={theme}
+                         onClick={() => setSettings({...settings, theme})}
+                         className={`h-16 rounded-xl border-2 flex flex-col items-center justify-center relative overflow-hidden transition-all ${settings.theme === theme ? 'border-slate-800 ring-2 ring-slate-200 scale-105' : 'border-slate-100 hover:border-slate-300'}`}
+                       >
+                         <div className="absolute inset-0 flex flex-col">
+                            <div className="h-1/2 w-full" style={{ backgroundColor: THEMES[theme].primary }}></div>
+                            <div className="h-1/2 w-full" style={{ backgroundColor: THEMES[theme].accent }}></div>
+                         </div>
+                         <span className="relative z-10 text-[10px] font-bold text-white bg-black/40 px-1.5 py-0.5 rounded backdrop-blur-sm mt-8">
+                            {THEMES[theme].name}
+                         </span>
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+
+                 <div>
+                   <label className="block text-sm font-bold text-slate-700 mb-2">Typography</label>
+                   <select 
+                     value={settings.fontFamily} 
+                     onChange={(e) => setSettings({...settings, fontFamily: e.target.value as any})}
+                     className="w-full border border-slate-200 p-2.5 rounded-lg text-slate-700 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none mb-3"
+                   >
+                     {Object.keys(FONT_FAMILIES).map(font => (
+                       <option key={font} value={font}>{font}</option>
+                     ))}
+                   </select>
+                   <div className="flex gap-2">
+                     {(['small', 'medium', 'large', 'xl'] as const).map(size => (
+                       <button 
+                          key={size}
+                          onClick={() => setSettings({...settings, fontSize: size})}
+                          className={`flex-1 py-2 border rounded-lg text-xs font-medium transition-colors ${settings.fontSize === size ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                       >
+                         {size.toUpperCase()}
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+
+                 <div className="space-y-3">
+                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Display Options</div>
+                   
+                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox"
+                        checked={settings.compactMode}
+                        onChange={(e) => setSettings({...settings, compactMode: e.target.checked})}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-sm font-bold text-slate-800 block">Compact Row Mode</span>
+                        <span className="text-xs text-slate-500">Reduces vertical spacing for printing.</span>
+                      </div>
+                   </label>
+
+                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox"
+                        checked={settings.showLineColumn ?? true}
+                        onChange={(e) => setSettings({...settings, showLineColumn: e.target.checked})}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-sm font-bold text-slate-800 block">Show "Line" Column</span>
+                        <span className="text-xs text-slate-500">Toggle the visibility of line selection.</span>
+                      </div>
+                   </label>
+
+                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox"
+                        checked={settings.showTimeColumn ?? true}
+                        onChange={(e) => setSettings({...settings, showTimeColumn: e.target.checked})}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-sm font-bold text-slate-800 block">Show "Time" Column</span>
+                        <span className="text-xs text-slate-500">Toggle the total time calculator column.</span>
+                      </div>
+                   </label>
+
+                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">System</div>
+
+                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox"
+                        checked={settings.confirmDeleteRow}
+                        onChange={(e) => setSettings({...settings, confirmDeleteRow: e.target.checked})}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-sm font-bold text-slate-800 block">Confirm Row Deletion</span>
+                        <span className="text-xs text-slate-500">Ask before deleting a log entry row.</span>
+                      </div>
+                   </label>
+                   
+                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox"
+                        checked={settings.enableSpellCheck}
+                        onChange={(e) => setSettings({...settings, enableSpellCheck: e.target.checked})}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-sm font-bold text-slate-800 block">Enable Spell Check</span>
+                        <span className="text-xs text-slate-500">Show red underlines for typos.</span>
+                      </div>
+                   </label>
+                 </div>
+             </div>
+             
+             <div className="flex justify-end pt-4 border-t mt-6">
+                <button 
+                  onClick={() => setSettingsOpen(false)}
+                  className="bg-slate-800 text-white px-6 py-2 rounded-lg hover:bg-slate-700 font-medium transition-colors"
+                >
+                  Done
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Section Manager Modal */}
+      {sectionManagerOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden" onClick={() => setSectionManagerOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-96 p-6" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-lg text-slate-800">Manage Sections</h3>
+                      <button onClick={() => setSectionManagerOpen(false)} className="text-slate-400 hover:text-slate-700"><X size={20}/></button>
+                  </div>
+                  <div className="flex gap-2 mb-4">
+                      <input 
+                          className="border border-slate-300 p-2.5 flex-1 text-sm rounded-lg text-black bg-white focus:ring-2 focus:ring-green-500 outline-none"
+                          placeholder="New section name..."
+                          value={newSectionName}
+                          onChange={e => setNewSectionName(e.target.value)}
+                      />
+                      <button onClick={handleAddSection} className="bg-green-600 text-white p-2.5 rounded-lg hover:bg-green-700 transition-colors"><Plus size={18}/></button>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50">
+                      {sections.map(section => (
+                          <div key={section} className="flex justify-between items-center p-3 border-b border-slate-200 last:border-0 hover:bg-white transition-colors text-sm">
+                              {editingSection === section ? (
+                                  <div className="flex gap-2 w-full items-center">
+                                      <input 
+                                          className="border p-1.5 text-xs rounded flex-1 text-black bg-white"
+                                          value={editSectionName}
+                                          onChange={e => setEditSectionName(e.target.value)}
+                                          autoFocus
+                                      />
+                                      <button onClick={() => handleEditSection(section)} className="text-green-600 hover:bg-green-50 p-1 rounded"><Check size={14}/></button>
+                                      <button onClick={() => setEditingSection(null)} className="text-slate-400 hover:bg-slate-100 p-1 rounded"><X size={14}/></button>
+                                  </div>
+                              ) : (
+                                  <>
+                                    <span className={`text-slate-700 flex-1 ${section === currentSection ? 'font-bold text-blue-600' : ''}`}>
+                                        {section} {section === currentSection && ' (Active)'}
+                                    </span>
+                                    <div className="flex gap-1">
+                                        <button onClick={() => { setEditingSection(section); setEditSectionName(section); }} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-md transition-colors"><Pencil size={14}/></button>
+                                        <button 
+                                            onClick={() => handleDeleteSection(section)} 
+                                            className={`p-1.5 rounded-md transition-colors ${section === 'Filling and Downstream' ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:bg-red-50'}`}
+                                            disabled={section === 'Filling and Downstream'}
+                                        >
+                                            <Trash2 size={14}/>
+                                        </button>
+                                    </div>
+                                  </>
+                              )}
+                          </div>
+                      ))}
+                      {sections.length === 0 && <div className="p-4 text-center text-slate-400">No sections found</div>}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Print Option Modal */}
+      {printModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-80 p-6">
+             <h3 className="font-bold text-lg mb-6 text-center text-slate-800">Print Options</h3>
+             <div className="flex flex-col gap-3">
+               <button onClick={() => executePrint('all')} className="bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 font-medium transition-colors">Print All Shifts</button>
+               <button onClick={() => executePrint('night')} className="bg-slate-600 text-white py-2.5 rounded-lg hover:bg-slate-700 font-medium transition-colors">Night Shift Only</button>
+               <button onClick={() => executePrint('morning')} className="bg-orange-400 text-white py-2.5 rounded-lg hover:bg-orange-500 font-medium transition-colors">Morning Shift Only</button>
+               <button onClick={() => executePrint('evening')} className="bg-purple-600 text-white py-2.5 rounded-lg hover:bg-purple-700 font-medium transition-colors">Evening Shift Only</button>
+               <button onClick={() => setPrintModalOpen(false)} className="mt-2 text-slate-500 hover:text-slate-800 font-medium">Cancel</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toolbar */}
+      <div className="fixed top-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm px-6 py-3 no-print">
+        <div className="max-w-[1200px] mx-auto flex flex-wrap gap-4 justify-between items-center">
+            <div className="flex items-center gap-4">
+                <div className="bg-blue-600 p-2 rounded-lg text-white shadow-lg shadow-blue-600/20">
+                    <FileSpreadsheet size={20} />
+                </div>
+                <div>
+                    <h1 className="font-bold text-lg text-slate-800 leading-tight">MaintLog Pro</h1>
+                    <p className="text-[10px] text-slate-400 font-medium tracking-wide">DIGITAL LOGBOOK</p>
+                </div>
+                <div className="h-6 w-px bg-slate-200 mx-2"></div>
+                <button onClick={() => setSettingsOpen(true)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors" title="Settings">
+                  <Settings size={20} />
+                </button>
+            </div>
+            <div className="flex gap-2">
+                <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm">
+                    <Save size={14} /> SAVE
+                </button>
+                <button onClick={handleClear} className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-xs font-bold transition-all">
+                    <Trash2 size={14} /> CLEAR
+                </button>
+                <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-bold transition-all">
+                    <FileSpreadsheet size={14} /> CSV
+                </button>
+                <button onClick={handlePrintRequest} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-blue-200">
+                    <Printer size={14} /> PRINT / PDF
+                </button>
+                <div className="w-px bg-slate-200 mx-2"></div>
+                <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-slate-600 rounded-lg transition-colors" title="Logout">
+                    <LogOut size={18} />
+                </button>
+            </div>
+        </div>
+      </div>
+
+      {/* Main Report Card */}
+      <div className="max-w-[1200px] mx-auto bg-white shadow-xl rounded-xl overflow-visible my-24 print:shadow-none print:w-full print:m-0 print:rounded-none border border-slate-200 print:border-none">
+        
+        {/* Modern Header */}
+        <div className="bg-slate-900 text-white p-6 rounded-t-xl print:rounded-none print:p-4 print:bg-white print:text-black print:border-b-2 print:border-black">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+            <div>
+               <h1 className="text-2xl font-bold uppercase tracking-wider text-blue-400 print:text-black mb-1">Daily Maintenance Activity Report</h1>
+               {/* Removed Industrial Engineering Department text */}
+            </div>
+            
+            <div className="flex gap-6 w-full md:w-auto">
+               <div className="flex-1 md:flex-none">
+                  <label className="block text-[10px] font-bold text-slate-400 print:text-black uppercase tracking-widest mb-1">Section</label>
+                  <div className="relative group">
+                    <input 
+                        className="w-full md:w-64 bg-slate-800 print:bg-transparent border border-slate-700 print:border-black rounded px-3 py-1.5 text-sm font-medium text-white print:text-black focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder-slate-500"
+                        value={currentSection}
+                        onChange={(e) => setCurrentSection(e.target.value)}
+                        list="sections-list"
+                        placeholder="Select Section..."
+                    />
+                    <datalist id="sections-list">
+                        {sections.map(s => <option key={s} value={s} />)}
+                    </datalist>
+                    <button 
+                        onClick={() => setSectionManagerOpen(true)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white no-print"
+                        title="Manage Sections"
+                    >
+                        <Settings size={14}/>
+                    </button>
+                  </div>
+               </div>
+               <div className="flex-1 md:flex-none">
+                  <label className="block text-[10px] font-bold text-slate-400 print:text-black uppercase tracking-widest mb-1">Date</label>
+                  <div className="relative">
+                    <input 
+                        type="date" 
+                        className="w-full md:w-auto bg-slate-800 print:bg-transparent border border-slate-700 print:border-black rounded px-3 py-1.5 text-sm font-medium text-white print:text-black focus:ring-2 focus:ring-blue-500 outline-none transition-all uppercase"
+                        value={currentDate}
+                        onChange={(e) => setCurrentDate(e.target.value)}
+                    />
+                    <Calendar size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none no-print" />
+                  </div>
+               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Report Content */}
+        <div className="bg-white print:w-full">
+            
+            {/* Shift Sections */}
+            <ShiftSection 
+                shift={report.shifts.night} 
+                onChange={(data) => updateShift('night', data)}
+                availableEngineers={availableEngineers}
+                onAddEngineer={handleAddEngineer}
+                onDeleteEngineer={handleDeleteEngineer}
+                machines={machines}
+                onUpdateMachines={saveMachines}
+                sparePartsDB={sparePartsDB}
+                onUpdateSparePartsDB={saveSparePartsDB}
+                printHidden={printFilter !== 'all' && printFilter !== 'night'}
+                themeColor={currentTheme.primary}
+                accentColor={currentTheme.accent}
+                compactMode={settings.compactMode}
+                titleBgColor={SHIFT_TITLE_COLORS.night}
+                appSettings={settings}
+                suggestions={suggestions}
+                onLearnSuggestion={handleLearnSuggestion}
+            />
+            
+            <ShiftSection 
+                shift={report.shifts.morning} 
+                onChange={(data) => updateShift('morning', data)}
+                availableEngineers={availableEngineers}
+                onAddEngineer={handleAddEngineer}
+                onDeleteEngineer={handleDeleteEngineer}
+                machines={machines}
+                onUpdateMachines={saveMachines}
+                sparePartsDB={sparePartsDB}
+                onUpdateSparePartsDB={saveSparePartsDB}
+                printHidden={printFilter !== 'all' && printFilter !== 'morning'}
+                themeColor={currentTheme.primary}
+                accentColor={currentTheme.accent}
+                compactMode={settings.compactMode}
+                titleBgColor={SHIFT_TITLE_COLORS.morning}
+                appSettings={settings}
+                suggestions={suggestions}
+                onLearnSuggestion={handleLearnSuggestion}
+            />
+            
+            <ShiftSection 
+                shift={report.shifts.evening} 
+                onChange={(data) => updateShift('evening', data)}
+                availableEngineers={availableEngineers}
+                onAddEngineer={handleAddEngineer}
+                onDeleteEngineer={handleDeleteEngineer}
+                machines={machines}
+                onUpdateMachines={saveMachines}
+                sparePartsDB={sparePartsDB}
+                onUpdateSparePartsDB={saveSparePartsDB}
+                printHidden={printFilter !== 'all' && printFilter !== 'evening'}
+                themeColor={currentTheme.primary}
+                accentColor={currentTheme.accent}
+                compactMode={settings.compactMode}
+                titleBgColor={SHIFT_TITLE_COLORS.evening}
+                appSettings={settings}
+                suggestions={suggestions}
+                onLearnSuggestion={handleLearnSuggestion}
+            />
+
+            {/* Footer Line */}
+            <div className={`h-2 bg-gradient-to-r from-blue-600 to-blue-400 w-full rounded-b-xl print:rounded-none ${printFilter !== 'all' ? 'print:hidden' : ''}`}></div>
+        </div>
+        
+      </div>
+    </div>
+  );
+};
+
+export default App;
