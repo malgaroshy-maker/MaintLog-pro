@@ -1,3 +1,4 @@
+
 export interface TimeEntry {
   start: string;
   end: string;
@@ -61,6 +62,7 @@ export interface AppSettings {
   reportTitle: string;
   hideEmptyRowsPrint: boolean;
   autoCapitalize: boolean;
+  geminiApiKey?: string;
 }
 
 export const INITIAL_ENTRY: LogEntry = {

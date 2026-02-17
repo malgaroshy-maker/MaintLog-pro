@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ShiftSection from './components/ShiftSection';
-import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings } from './types';
-import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2 } from 'lucide-react';
+import { AIChat } from './components/AIChat';
+import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings, LogEntry, UsedPart } from './types';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key } from 'lucide-react';
 
 const INITIAL_ROWS = 5;
 const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
@@ -95,7 +96,8 @@ const App: React.FC = () => {
         dateFormat: 'iso',
         reportTitle: 'Daily Maintenance Activity Report',
         hideEmptyRowsPrint: false,
-        autoCapitalize: true
+        autoCapitalize: true,
+        geminiApiKey: ''
     };
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -144,6 +146,16 @@ const App: React.FC = () => {
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editSectionName, setEditSectionName] = useState('');
 
+  // Analytics & History State
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<{topMachines: {name: string, count: number}[], downtime: {date: string, minutes: number}[], totalInterventions: number}>({ topMachines: [], downtime: [], totalInterventions: 0});
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyTargetMachine, setHistoryTargetMachine] = useState('');
+  const [machineHistoryData, setMachineHistoryData] = useState<any[]>([]);
+
+  // AI Chat State
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+
   // Auto-save Reference
   const reportRef = useRef(report);
   const isDirtyRef = useRef(false);
@@ -163,6 +175,15 @@ const App: React.FC = () => {
     reportRef.current = report;
     isDirtyRef.current = true;
   }, [report]);
+
+  // Auto-persist Spare Parts DB
+  useEffect(() => {
+      // Only save if we have initialized (simple check to avoid overwriting with empty on first render if async)
+      // Actually, standard useEffect runs after render, so initial state is already set.
+      if (currentSection) {
+          localStorage.setItem(`sparePartsDB_${currentSection}`, JSON.stringify(sparePartsDB));
+      }
+  }, [sparePartsDB, currentSection]);
 
   // Undo/Redo Keyboard Shortcuts
   useEffect(() => {
@@ -335,7 +356,7 @@ const App: React.FC = () => {
 
   const saveSparePartsDB = (newDB: SparePart[]) => {
     setSparePartsDB(newDB);
-    localStorage.setItem(`sparePartsDB_${currentSection}`, JSON.stringify(newDB));
+    // Persistence handled by useEffect now
   };
 
   const handleAddEngineer = (name: string) => {
@@ -566,6 +587,146 @@ const App: React.FC = () => {
       document.body.removeChild(link);
   };
 
+  // --- ANALYTICS & HISTORY LOGIC ---
+
+  const calculateAnalytics = () => {
+    let machineCounts: {[key: string]: number} = {};
+    let downtimeStats: {[key: string]: number} = {};
+    let interventionCount = 0;
+
+    // Scan last 30 days of data (approx) or all local storage matching pattern
+    // Scanning all local storage for current section
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('maintlog_report_') && key.endsWith(currentSection)) {
+            try {
+                const data: ReportData = JSON.parse(localStorage.getItem(key)!);
+                (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
+                    const shift = data.shifts[shiftKey];
+                    shift.entries.forEach(entry => {
+                        if (entry.machine && entry.description) {
+                            interventionCount++;
+                            // Machine Stats
+                            machineCounts[entry.machine] = (machineCounts[entry.machine] || 0) + 1;
+                            
+                            // Downtime Stats
+                            const mins = parseInt(timeToMinutes(entry.totalTime));
+                            if (mins > 0) {
+                                downtimeStats[data.date] = (downtimeStats[data.date] || 0) + mins;
+                            }
+                        }
+                    });
+                });
+            } catch (e) { console.error(e); }
+        }
+    }
+
+    // Sort Top Machines
+    const sortedMachines = Object.entries(machineCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
+
+    // Sort Downtime by Date (Top 7 days recently)
+    const sortedDowntime = Object.entries(downtimeStats)
+        .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+        .slice(0, 7)
+        .map(([date, minutes]) => ({ date, minutes }))
+        .reverse();
+
+    setAnalyticsData({
+        topMachines: sortedMachines,
+        downtime: sortedDowntime,
+        totalInterventions: interventionCount
+    });
+    setAnalyticsOpen(true);
+  };
+
+  const showMachineHistory = (machineName: string) => {
+      setHistoryTargetMachine(machineName);
+      const historyList: any[] = [];
+      
+      // Scan all reports for this machine in current section
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('maintlog_report_') && key.endsWith(currentSection)) {
+            try {
+                const data: ReportData = JSON.parse(localStorage.getItem(key)!);
+                (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
+                    const shift = data.shifts[shiftKey];
+                    shift.entries.forEach(entry => {
+                        if (entry.machine === machineName && (entry.description || entry.totalTime)) {
+                            historyList.push({
+                                date: data.date,
+                                shift: shift.title,
+                                description: stripHtml(entry.description),
+                                totalTime: entry.totalTime,
+                                spareParts: entry.spareParts,
+                                engineers: shift.engineers
+                            });
+                        }
+                    });
+                });
+            } catch (e) { console.error(e); }
+        }
+    }
+    // Sort by date descending
+    historyList.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    setMachineHistoryData(historyList);
+    setHistoryModalOpen(true);
+  };
+
+  const handleBackup = () => {
+    const backupData: any = {};
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+             // Backup app specific keys
+             if(key.startsWith('maintlog_') || key.startsWith('machines_') || key.startsWith('availableEngineers_') || key.startsWith('sparePartsDB_') || key === 'sections' || key === 'appSettings') {
+                 backupData[key] = localStorage.getItem(key);
+             }
+        }
+    }
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `MaintLog_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              try {
+                  const data = JSON.parse(event.target?.result as string);
+                  if (confirm("WARNING: This will overwrite your current database. Are you sure?")) {
+                      // Optional: Clear existing relevant keys to avoid stale data mixing
+                      Object.keys(localStorage).forEach(key => {
+                          if (key.startsWith('maintlog_') || key.startsWith('machines_')) {
+                              localStorage.removeItem(key);
+                          }
+                      });
+
+                      // Restore keys
+                      Object.keys(data).forEach(key => {
+                          localStorage.setItem(key, data[key]);
+                      });
+                      alert("Restore successful! Reloading application...");
+                      window.location.reload();
+                  }
+              } catch (err) {
+                  alert("Invalid backup file.");
+              }
+          };
+          reader.readAsText(file);
+      }
+  };
+
   const handleClear = () => {
     if(confirm("Are you sure you want to clear the form? This will overwrite the current entry.")) {
         const freshReport: ReportData = {
@@ -628,6 +789,123 @@ const App: React.FC = () => {
       return isoDate; // ISO default
   }
 
+  // --- AI TOOL EXECUTION ---
+  const handleAiToolAction = async (toolName: string, args: any): Promise<any> => {
+      console.log(`Executing tool: ${toolName}`, args);
+      
+      if (toolName === 'add_spare_part') {
+          return new Promise((resolve) => {
+              setSparePartsDB(currentDB => {
+                  const { name, partNumber } = args;
+                  if (!name || !partNumber) {
+                      resolve("Error: Name and Part Number required.");
+                      return currentDB;
+                  }
+
+                  const exists = currentDB.find(p => 
+                      p.name.toLowerCase() === name.toLowerCase() || 
+                      p.partNumber.toLowerCase() === partNumber.toLowerCase()
+                  );
+
+                  if (exists) {
+                      resolve(`Part '${name}' (${partNumber}) already exists in database.`);
+                      return currentDB;
+                  }
+
+                  const newPart: SparePart = {
+                      id: crypto.randomUUID(),
+                      name,
+                      partNumber
+                  };
+                  const newDB = [...currentDB, newPart];
+                  // Note: useEffect handles persistence
+                  resolve(`Successfully added part '${name}' to database.`);
+                  return newDB;
+              });
+          });
+      }
+
+      if (toolName === 'add_log_entry') {
+          return new Promise((resolve) => {
+             setReport(prevReport => {
+                const shiftId = args.shift?.toLowerCase() as 'night'|'morning'|'evening';
+                if (!shiftId || !['night','morning','evening'].includes(shiftId)) {
+                    resolve("Error: Invalid shift specified.");
+                    return prevReport;
+                }
+                
+                const shift = prevReport.shifts[shiftId];
+                // Find first empty entry or create new
+                const emptyEntry = shift.entries.find(e => !e.machine && !e.description);
+                let newEntries = [...shift.entries];
+                
+                // Process Used Parts
+                let usedPartsData: UsedPart[] = [];
+                let sparePartsString = "";
+                let quantityString = "";
+
+                if (args.used_parts && Array.isArray(args.used_parts)) {
+                    usedPartsData = args.used_parts.map((up: any) => {
+                        // IMPORTANT: Read from CURRENT sparePartsDB in closure might be stale if called immediately after adding part.
+                        // Ideally we would read from functional update of DB, but these are separate states.
+                        // We gracefully fallback to provided names if DB not found (which is fine for this app).
+                        
+                        const dbPart = sparePartsDB.find(p => p.name.toLowerCase() === up.name.toLowerCase());
+                        const partName = dbPart ? dbPart.name : up.name;
+                        const partNum = dbPart ? dbPart.partNumber : "N/A";
+                        const partId = dbPart ? dbPart.id : crypto.randomUUID(); 
+                        
+                        return {
+                            partId: partId,
+                            name: partName,
+                            partNumber: partNum,
+                            quantity: up.quantity || "1"
+                        };
+                    });
+
+                    sparePartsString = usedPartsData.map(p => `${p.name} (${p.partNumber})`).join('\n');
+                    quantityString = usedPartsData.map(p => p.quantity).join('\n');
+                }
+
+                const entryData = {
+                    machine: args.machine || '',
+                    line: args.line || '',
+                    description: args.description || '',
+                    notes: args.notes || '',
+                    totalTime: args.totalTime || '',
+                    spareParts: sparePartsString,
+                    quantity: quantityString,
+                    usedParts: usedPartsData
+                };
+
+                if (emptyEntry) {
+                    newEntries = newEntries.map(e => e.id === emptyEntry.id ? { ...e, ...entryData } : e);
+                } else {
+                    newEntries.push({ ...INITIAL_ENTRY, id: crypto.randomUUID(), ...entryData });
+                }
+
+                const newReport = {
+                    ...prevReport,
+                    shifts: {
+                        ...prevReport.shifts,
+                        [shiftId]: { ...shift, entries: newEntries }
+                    }
+                };
+                resolve(`Successfully added entry to ${shiftId} shift for machine ${args.machine}.`);
+                return newReport;
+             });
+          });
+      } else if (toolName === 'change_date') {
+          if (args.date) {
+              setCurrentDate(args.date);
+              return `Date changed to ${args.date}.`;
+          }
+          return "Error: No date provided.";
+      }
+
+      return "Unknown tool.";
+  };
+
   // --- LOGIN SCREEN ---
   if (!isAuthenticated) {
     return (
@@ -671,7 +949,7 @@ const App: React.FC = () => {
            <div className="mt-8 pt-6 border-t border-slate-100 text-center">
               <p className="text-xs text-slate-400">Developed by</p>
               <p className="font-bold text-slate-700">Mahamed Algaroshy</p>
-              <p className="text-[10px] text-slate-400 mt-2">v2.0.0 • 2026</p>
+              <p className="text-[10px] text-slate-400 mt-2">v2.1.0 • 2026</p>
            </div>
         </div>
       </div>
@@ -686,6 +964,128 @@ const App: React.FC = () => {
   return (
     <div className={`min-h-screen bg-slate-50 print:bg-white ${fontSizeClass} ${fontFamilyClass}`}>
       
+      {/* AI Chat Modal */}
+      <AIChat 
+        isOpen={aiChatOpen} 
+        onClose={() => setAiChatOpen(false)} 
+        apiKey={settings.geminiApiKey} 
+        report={report}
+        sparePartsDB={sparePartsDB}
+        onToolAction={handleAiToolAction}
+      />
+
+      {/* Analytics Modal */}
+      {analyticsOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden" onClick={() => setAnalyticsOpen(false)}>
+           <div className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+               <div className="flex justify-between items-center mb-6">
+                   <h3 className="font-bold text-xl text-slate-800 flex items-center gap-2"><BarChart3 /> Analytics Dashboard</h3>
+                   <button onClick={() => setAnalyticsOpen(false)}><X size={24} className="text-slate-400 hover:text-slate-600" /></button>
+               </div>
+               
+               <div className="grid grid-cols-2 gap-4 mb-6">
+                   <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-center">
+                       <div className="text-3xl font-bold text-blue-700 mb-1">{analyticsData.totalInterventions}</div>
+                       <div className="text-xs text-blue-400 font-bold uppercase tracking-wider">Total Interventions</div>
+                   </div>
+                   <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 text-center">
+                       <div className="text-3xl font-bold text-orange-700 mb-1">{analyticsData.topMachines[0]?.name || '-'}</div>
+                       <div className="text-xs text-orange-400 font-bold uppercase tracking-wider">Most Active Machine</div>
+                   </div>
+               </div>
+
+               <div className="mb-6">
+                   <h4 className="font-bold text-sm text-slate-600 mb-3 uppercase tracking-wide">Top 5 "Worst" Machines</h4>
+                   <div className="space-y-3">
+                       {analyticsData.topMachines.map((m, idx) => (
+                           <div key={m.name}>
+                               <div className="flex justify-between text-xs mb-1 font-medium text-slate-700">
+                                   <span>{idx+1}. {m.name}</span>
+                                   <span>{m.count} logs</span>
+                               </div>
+                               <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                   <div 
+                                      className="h-full bg-red-500 rounded-full" 
+                                      style={{ width: `${(m.count / (analyticsData.topMachines[0]?.count || 1)) * 100}%` }} 
+                                   />
+                               </div>
+                           </div>
+                       ))}
+                       {analyticsData.topMachines.length === 0 && <div className="text-slate-400 text-sm text-center py-4">No data available</div>}
+                   </div>
+               </div>
+
+               <div>
+                   <h4 className="font-bold text-sm text-slate-600 mb-3 uppercase tracking-wide">Recent Daily Downtime (Minutes)</h4>
+                   <div className="flex items-end gap-2 h-32 border-b border-slate-200 pb-2">
+                       {analyticsData.downtime.map(d => {
+                           const max = Math.max(...analyticsData.downtime.map(x => x.minutes), 1);
+                           const height = (d.minutes / max) * 100;
+                           return (
+                               <div key={d.date} className="flex-1 flex flex-col items-center justify-end h-full group relative">
+                                   <div className="text-[10px] text-slate-500 mb-1 opacity-0 group-hover:opacity-100 transition-opacity absolute -top-5 bg-white shadow px-1 rounded border">{d.minutes}m</div>
+                                   <div className="w-full bg-blue-600 rounded-t-sm hover:bg-blue-700 transition-colors" style={{ height: `${height}%` }}></div>
+                                   <div className="text-[8px] text-slate-400 mt-1 rotate-0 whitespace-nowrap overflow-hidden">{d.date.slice(5)}</div>
+                               </div>
+                           )
+                       })}
+                       {analyticsData.downtime.length === 0 && <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">No downtime recorded recently</div>}
+                   </div>
+               </div>
+           </div>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {historyModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden" onClick={() => setHistoryModalOpen(false)}>
+           <div className="bg-white rounded-2xl shadow-2xl w-[700px] max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+               <div className="flex justify-between items-center mb-4 border-b pb-4">
+                   <div>
+                       <h3 className="font-bold text-xl text-slate-800 flex items-center gap-2"><History /> Machine History</h3>
+                       <div className="text-sm text-slate-500">History for <span className="font-bold text-blue-600">{historyTargetMachine}</span> in {currentSection}</div>
+                   </div>
+                   <button onClick={() => setHistoryModalOpen(false)}><X size={24} className="text-slate-400 hover:text-slate-600" /></button>
+               </div>
+               
+               <div className="space-y-4">
+                   {machineHistoryData.map((h, idx) => (
+                       <div key={idx} className="bg-slate-50 p-4 rounded-lg border border-slate-100 hover:border-blue-200 transition-colors">
+                           <div className="flex justify-between items-start mb-2">
+                               <div className="flex gap-2 items-center">
+                                   <span className="font-bold text-slate-800">{h.date}</span>
+                                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${h.shift.includes('Night') ? 'bg-slate-200 text-slate-700' : h.shift.includes('Morning') ? 'bg-yellow-100 text-yellow-800' : 'bg-orange-100 text-orange-800'}`}>
+                                       {h.shift}
+                                   </span>
+                               </div>
+                               <div className="text-xs text-slate-400 font-mono">{h.engineers}</div>
+                           </div>
+                           <div className="text-sm text-slate-700 mb-2 font-medium">{h.description || <span className="italic text-slate-400">No description</span>}</div>
+                           
+                           {(h.totalTime || h.spareParts) && (
+                               <div className="flex gap-4 mt-2 pt-2 border-t border-slate-200 text-xs">
+                                   {h.totalTime && (
+                                       <div className="flex items-center gap-1 text-blue-600 font-bold">
+                                           <Clock size={12} /> {h.totalTime}
+                                       </div>
+                                   )}
+                                   {h.spareParts && (
+                                       <div className="flex items-center gap-1 text-slate-500">
+                                           <Settings size={12} /> {h.spareParts.replace(/\n/g, ', ')}
+                                       </div>
+                                   )}
+                               </div>
+                           )}
+                       </div>
+                   ))}
+                   {machineHistoryData.length === 0 && (
+                       <div className="text-center py-10 text-slate-400">No history found for this machine.</div>
+                   )}
+               </div>
+           </div>
+        </div>
+      )}
+
       {/* Settings Modal */}
       {settingsOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
@@ -823,6 +1223,37 @@ const App: React.FC = () => {
                         <span className="text-xs text-slate-500">Only print rows with data to save paper.</span>
                       </div>
                    </label>
+                 </div>
+
+                 {/* Data Management Section */}
+                 <div className="space-y-3 pt-4 border-t border-slate-200">
+                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Data Management</div>
+
+                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-2"><Key size={16}/> Google Gemini API Key</h4>
+                        <p className="text-xs text-slate-500 mb-3">Enable AI features by providing your API key. Stored locally.</p>
+                        <input 
+                            type="password"
+                            placeholder="Enter AI API Key..."
+                            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                            value={settings.geminiApiKey || ''}
+                            onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})}
+                        />
+                   </div>
+                   
+                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                       <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-2"><HardDrive size={16}/> Backup & Restore</h4>
+                       <p className="text-xs text-slate-500 mb-4">Export full database to a JSON file for safe keeping or transfer.</p>
+                       <div className="flex gap-2">
+                           <button onClick={handleBackup} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2">
+                               <Download size={14}/> Backup
+                           </button>
+                           <label className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer">
+                               <Upload size={14}/> Restore
+                               <input type="file" accept=".json" onChange={handleRestore} className="hidden" />
+                           </label>
+                       </div>
+                   </div>
                  </div>
 
                  {/* Advanced Data Export (Moved to Bottom) */}
@@ -973,6 +1404,24 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium border border-green-200 mr-2">
                    <Check size={12} /> Auto-Saving On
                 </div>
+                
+                <button 
+                    onClick={() => setAiChatOpen(!aiChatOpen)}
+                    className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-200"
+                    title="AI Copilot"
+                >
+                    <Sparkles size={16} className="text-yellow-300" />
+                    AI Copilot
+                </button>
+
+                <button 
+                    onClick={calculateAnalytics}
+                    className="flex items-center gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-all border border-indigo-200"
+                    title="Analytics Dashboard"
+                >
+                    <BarChart3 size={16} />
+                </button>
+
                 <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-bold transition-all">
                     <FileSpreadsheet size={14} /> CSV
                 </button>
@@ -1074,6 +1523,7 @@ const App: React.FC = () => {
                 appSettings={settings}
                 suggestions={suggestions}
                 onLearnSuggestion={handleLearnSuggestion}
+                onShowHistory={showMachineHistory}
             />
             
             <ShiftSection 
@@ -1094,6 +1544,7 @@ const App: React.FC = () => {
                 appSettings={settings}
                 suggestions={suggestions}
                 onLearnSuggestion={handleLearnSuggestion}
+                onShowHistory={showMachineHistory}
             />
             
             <ShiftSection 
@@ -1114,6 +1565,7 @@ const App: React.FC = () => {
                 appSettings={settings}
                 suggestions={suggestions}
                 onLearnSuggestion={handleLearnSuggestion}
+                onShowHistory={showMachineHistory}
             />
 
             {/* Footer Line */}

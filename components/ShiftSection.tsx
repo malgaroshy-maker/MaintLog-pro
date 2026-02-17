@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ShiftData, LogEntry, INITIAL_ENTRY, TimeEntry, SparePart, UsedPart, AppSettings } from '../types';
-import { Plus, Trash2, Clock, Check, X, Settings, Search, Save, Pencil, Bold, Italic, Underline, Highlighter, Palette, Sparkles, Type } from 'lucide-react';
+import { Plus, Trash2, Clock, Check, X, Settings, Search, Save, Pencil, Bold, Italic, Underline, Highlighter, Palette, Sparkles, Type, History } from 'lucide-react';
 
 // --- Rich Text Component ---
 interface RichTextCellProps {
@@ -200,6 +200,7 @@ interface ShiftSectionProps {
   appSettings?: AppSettings;
   suggestions: string[];
   onLearnSuggestion?: (text: string) => void;
+  onShowHistory?: (machineName: string) => void;
 }
 
 const ShiftSection: React.FC<ShiftSectionProps> = ({ 
@@ -219,7 +220,8 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   titleBgColor,
   appSettings,
   suggestions,
-  onLearnSuggestion
+  onLearnSuggestion,
+  onShowHistory
 }) => {
   const [activeLinePopup, setActiveLinePopup] = useState<string | null>(null);
   const [activeTimePopup, setActiveTimePopup] = useState<string | null>(null);
@@ -386,6 +388,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   };
 
   const startEditingPart = (part: SparePart, e: React.MouseEvent) => {
+      e.preventDefault();
       e.stopPropagation();
       setNewPartForm({ name: part.name, partNumber: part.partNumber });
       setEditingPartId(part.id);
@@ -393,9 +396,11 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   };
 
   const deletePart = (partId: string, e: React.MouseEvent) => {
+      e.preventDefault();
       e.stopPropagation();
-      if(confirm("Are you sure you want to permanently delete this part from the database?")) {
-          onUpdateSparePartsDB(sparePartsDB.filter(p => p.id !== partId));
+      if(window.confirm("Are you sure you want to permanently delete this part from the database?")) {
+          const updatedDB = sparePartsDB.filter(p => p.id !== partId);
+          onUpdateSparePartsDB(updatedDB);
           setTempUsedParts(prev => prev.filter(p => p.partId !== partId));
       }
   };
@@ -607,6 +612,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                                             onClick={(e) => startEditingPart(part, e)} 
                                             className="p-1 hover:bg-gray-200 rounded text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"
                                             title="Edit Part"
+                                            type="button"
                                         >
                                             <Pencil size={14} />
                                         </button>
@@ -614,6 +620,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                                             onClick={(e) => deletePart(part.id, e)} 
                                             className="p-1 hover:bg-gray-200 rounded text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                                             title="Delete Part"
+                                            type="button"
                                         >
                                             <Trash2 size={14} />
                                         </button>
@@ -806,7 +813,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
         >
           
           {/* Machine */}
-          <div className="w-[10%] border-r border-slate-200 print:border-black relative">
+          <div className="w-[10%] border-r border-slate-200 print:border-black relative group/machine">
             <input 
                 list="machine-options"
                 className="w-full h-full px-2 outline-none bg-transparent text-black placeholder-slate-300 focus:bg-blue-50/50 transition-colors text-center"
@@ -815,6 +822,15 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                 spellCheck={appSettings?.enableSpellCheck}
                 placeholder="-"
             />
+            {entry.machine && (
+              <button 
+                onClick={() => onShowHistory && onShowHistory(entry.machine)}
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-300 hover:text-blue-600 opacity-0 group-hover/machine:opacity-100 transition-all no-print bg-white/80 rounded-full p-0.5"
+                title={`View History for ${entry.machine}`}
+              >
+                <History size={12} />
+              </button>
+            )}
           </div>
 
           {/* Line */}
