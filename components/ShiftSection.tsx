@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ShiftData, LogEntry, INITIAL_ENTRY, TimeEntry, SparePart, UsedPart, AppSettings } from '../types';
-import { Plus, Trash2, Clock, Check, X, Settings, Search, Save, Pencil, Bold, Italic, Underline, Highlighter, Palette } from 'lucide-react';
+import { Plus, Trash2, Clock, Check, X, Settings, Search, Save, Pencil, Bold, Italic, Underline, Highlighter, Palette, Sparkles, Type } from 'lucide-react';
 
 // --- Rich Text Component ---
 interface RichTextCellProps {
@@ -14,11 +14,16 @@ interface RichTextCellProps {
 
 const RichTextCell: React.FC<RichTextCellProps> = ({ value, onChange, onBlur, placeholder, className, suggestionSuffix }) => {
   const contentEditableRef = useRef<HTMLDivElement>(null);
+  const shouldMoveCursorToEnd = useRef(false);
   const [showToolbar, setShowToolbar] = useState(false);
   const [toolbarPos, setToolbarPos] = useState({ top: 0, left: 0 });
 
   // Safe value handling
   const safeValue = value || '';
+  
+  // Detect if content has HTML tags (Rich Text)
+  // We treat simple <br> as not rich text so inline suggestions still work for multi-line plain text
+  const hasRichText = /<(?!\/?br\s*\/?)[a-z][\s\S]*>/i.test(safeValue);
 
   // Sync value to innerHTML when value changes externally (and not focused)
   useEffect(() => {
@@ -29,8 +34,34 @@ const RichTextCell: React.FC<RichTextCellProps> = ({ value, onChange, onBlur, pl
     }
   }, [safeValue]);
 
+  // Handle cursor placement after autocomplete
+  useEffect(() => {
+    if (shouldMoveCursorToEnd.current && contentEditableRef.current) {
+        const el = contentEditableRef.current;
+        el.focus();
+        // Move caret to end of text
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        shouldMoveCursorToEnd.current = false;
+    }
+  }, [value]); // Depend on value change to trigger cursor move
+
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
     onChange(e.currentTarget.innerHTML);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Right Arrow to accept suggestion (instead of Tab)
+    if (e.key === 'ArrowRight' && suggestionSuffix) {
+        e.preventDefault();
+        const newValue = safeValue + suggestionSuffix;
+        onChange(newValue);
+        shouldMoveCursorToEnd.current = true;
+    }
   };
 
   const handleSelect = () => {
@@ -38,9 +69,13 @@ const RichTextCell: React.FC<RichTextCellProps> = ({ value, onChange, onBlur, pl
     if (selection && !selection.isCollapsed && contentEditableRef.current?.contains(selection.anchorNode)) {
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
+      
+      // Calculate centered position above selection
+      const left = rect.left + (rect.width / 2) - 150; // approximate center (toolbar width ~300px)
+      
       setToolbarPos({
-        top: rect.top - 45, 
-        left: rect.left
+        top: rect.top - 50, 
+        left: left < 10 ? 10 : left // Keep on screen
       });
       setShowToolbar(true);
     } else {
@@ -59,49 +94,88 @@ const RichTextCell: React.FC<RichTextCellProps> = ({ value, onChange, onBlur, pl
     <>
       {showToolbar && (
         <div 
-          className="fixed z-50 bg-slate-800 text-white rounded-lg shadow-xl flex items-center gap-1 p-1 no-print"
+          className="fixed z-50 bg-slate-800 text-white rounded-lg shadow-xl flex items-center p-1.5 gap-1 no-print animate-in fade-in zoom-in duration-150"
           style={{ top: toolbarPos.top, left: toolbarPos.left }}
           onMouseDown={(e) => e.preventDefault()} // Prevent losing focus
         >
-          <button onClick={() => execCmd('bold')} className="p-1.5 hover:bg-slate-700 rounded"><Bold size={14}/></button>
-          <button onClick={() => execCmd('italic')} className="p-1.5 hover:bg-slate-700 rounded"><Italic size={14}/></button>
-          <button onClick={() => execCmd('underline')} className="p-1.5 hover:bg-slate-700 rounded"><Underline size={14}/></button>
-          <button onClick={() => execCmd('backColor', '#fef08a')} className="p-1.5 hover:bg-slate-700 rounded text-yellow-300"><Highlighter size={14}/></button>
-          <div className="w-px h-4 bg-slate-600 mx-0.5"></div>
-          <button onClick={() => execCmd('foreColor', '#ef4444')} className="p-1.5 hover:bg-slate-700 rounded text-red-500"><Palette size={14}/></button>
-          <button onClick={() => execCmd('foreColor', '#3b82f6')} className="p-1.5 hover:bg-slate-700 rounded text-blue-500"><Palette size={14}/></button>
-          <button onClick={() => execCmd('foreColor', '#22c55e')} className="p-1.5 hover:bg-slate-700 rounded text-green-500"><Palette size={14}/></button>
-          <button onClick={() => execCmd('foreColor', '#000000')} className="p-1.5 hover:bg-slate-700 rounded text-white"><X size={14}/></button>
-          <div className="w-px h-4 bg-slate-600 mx-0.5"></div>
-          <button onClick={() => execCmd('fontSize', '3')} className="p-1.5 hover:bg-slate-700 rounded text-xs font-bold">A</button>
-          <button onClick={() => execCmd('fontSize', '5')} className="p-1.5 hover:bg-slate-700 rounded text-lg font-bold">A+</button>
+           {/* Formatting Group */}
+           <div className="flex gap-0.5 bg-slate-700/50 p-0.5 rounded">
+              <button onClick={() => execCmd('bold')} className="p-1.5 hover:bg-slate-600 rounded" title="Bold"><Bold size={14}/></button>
+              <button onClick={() => execCmd('italic')} className="p-1.5 hover:bg-slate-600 rounded" title="Italic"><Italic size={14}/></button>
+              <button onClick={() => execCmd('underline')} className="p-1.5 hover:bg-slate-600 rounded" title="Underline"><Underline size={14}/></button>
+           </div>
+           
+           <div className="w-px h-5 bg-slate-600 mx-1"></div>
+
+           {/* Colors Group */}
+           <div className="flex gap-0.5 bg-slate-700/50 p-0.5 rounded">
+              <button onClick={() => execCmd('backColor', '#fef08a')} className="p-1.5 hover:bg-slate-600 rounded text-yellow-300" title="Highlight"><Highlighter size={14}/></button>
+              <button onClick={() => execCmd('foreColor', '#ef4444')} className="p-1.5 hover:bg-slate-600 rounded text-red-500" title="Red Text"><Palette size={14}/></button>
+              <button onClick={() => execCmd('foreColor', '#3b82f6')} className="p-1.5 hover:bg-slate-600 rounded text-blue-500" title="Blue Text"><Palette size={14}/></button>
+              <button onClick={() => execCmd('foreColor', '#000000')} className="p-1.5 hover:bg-slate-600 rounded text-white" title="Reset Color"><X size={14}/></button>
+           </div>
+
+           <div className="w-px h-5 bg-slate-600 mx-1"></div>
+
+           {/* Font Size Group - Optimized */}
+           <div className="flex gap-0.5 bg-slate-700/50 p-0.5 rounded items-center">
+              <Type size={14} className="mx-1 text-slate-400" />
+              <button onClick={() => execCmd('fontSize', '1')} className="px-2 py-1 hover:bg-slate-600 rounded text-[10px] font-bold leading-none">S</button>
+              <button onClick={() => execCmd('fontSize', '3')} className="px-2 py-1 hover:bg-slate-600 rounded text-[12px] font-bold leading-none">M</button>
+              <button onClick={() => execCmd('fontSize', '5')} className="px-2 py-1 hover:bg-slate-600 rounded text-[14px] font-bold leading-none">L</button>
+              <button onClick={() => execCmd('fontSize', '7')} className="px-2 py-1 hover:bg-slate-600 rounded text-[16px] font-bold leading-none">XL</button>
+           </div>
         </div>
       )}
-      <div 
-        ref={contentEditableRef}
-        contentEditable
-        className={`w-full min-h-full px-2 py-1.5 outline-none bg-transparent text-black transition-colors whitespace-pre-wrap break-words ${className}`}
-        onInput={handleInput}
-        onBlur={(e) => {
-            setShowToolbar(false);
-            if(onBlur) onBlur(e.currentTarget.innerHTML);
-        }}
-        onSelect={handleSelect}
-        spellCheck={false}
-        suppressContentEditableWarning={true}
-      />
-      {/* Placeholder / Ghost Text Logic */}
-      {(!safeValue || safeValue === '<br>') && placeholder && (
-          <div className="absolute inset-0 px-2 py-1.5 pointer-events-none text-slate-300 truncate text-center">
-              {placeholder}
-          </div>
-      )}
-      {suggestionSuffix && (
-          <div className="absolute inset-0 px-2 py-1.5 pointer-events-none text-center whitespace-pre-wrap break-words font-inter z-0">
-             <span className="opacity-0">{safeValue.replace(/<[^>]*>/g, '')}</span>
-             <span className="text-gray-400 opacity-50">{suggestionSuffix}</span>
-          </div>
-      )}
+      
+      <div className="relative w-full h-full min-h-[inherit]">
+        {/* Placeholder Logic */}
+        {(!safeValue || safeValue === '<br>') && placeholder && (
+            <div className={`absolute inset-0 px-2 py-1.5 pointer-events-none text-slate-300 truncate z-0 ${className}`}>
+                {placeholder}
+            </div>
+        )}
+        
+        {/* Suggestion Logic - Fixed Alignment Strategy */}
+        {suggestionSuffix && (
+            <>
+                {/* If Plain Text: Show Inline Ghost Overlay */}
+                {!hasRichText ? (
+                    <div 
+                        className={`absolute inset-0 px-2 py-1.5 pointer-events-none whitespace-pre-wrap break-words font-inter z-0 ${className}`}
+                        style={{ color: 'transparent' }} // Make original text transparent
+                        aria-hidden="true"
+                        // We render the SAME HTML as the input + the suffix in a visible span
+                        dangerouslySetInnerHTML={{
+                            __html: safeValue + `<span style="color: #94a3b8; opacity: 1; pointer-events: none;">${suggestionSuffix}</span>`
+                        }}
+                    />
+                ) : (
+                    /* If Rich Text: Show Floating Tooltip to avoid misalignment */
+                    <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded shadow-sm border border-blue-200 whitespace-nowrap z-20 pointer-events-none flex items-center gap-1">
+                        <Sparkles size={10} />
+                        <span>Arrow Right: ...{suggestionSuffix}</span>
+                    </div>
+                )}
+            </>
+        )}
+
+        {/* Input Field */}
+        <div 
+            ref={contentEditableRef}
+            contentEditable
+            className={`w-full min-h-full px-2 py-1.5 outline-none bg-transparent text-black transition-colors whitespace-pre-wrap break-words relative z-10 ${className}`}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            onBlur={(e) => {
+                setShowToolbar(false);
+                if(onBlur) onBlur(e.currentTarget.innerHTML);
+            }}
+            onSelect={handleSelect}
+            spellCheck={false}
+            suppressContentEditableWarning={true}
+        />
+      </div>
     </>
   );
 };
@@ -403,9 +477,14 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   // Helper to get suggestion
   const getInlineSuggestion = (val: string) => {
     if (!suggestionsEnabled) return null;
-    // Strip HTML tags for suggestion check
-    const cleanVal = (val || '').replace(/<[^>]*>/g, '');
+    
+    // Robust cleanup to handle contentEditable HTML entities
+    const div = document.createElement("div");
+    div.innerHTML = val || '';
+    const cleanVal = (div.textContent || div.innerText || '').trim();
+
     if (!cleanVal || cleanVal.length < 2) return null; 
+    
     const match = suggestions.find(s => s.toLowerCase().startsWith(cleanVal.toLowerCase()));
     if (match && match.toLowerCase() !== cleanVal.toLowerCase()) {
         return match.slice(cleanVal.length);
@@ -785,29 +864,33 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                }}
                suggestionSuffix={suggestionSuffix || undefined}
                placeholder=""
-               className="text-center font-inter"
+               className="text-left font-inter" // Changed from text-center to text-left for better alignment with ghost text
             />
           </div>
 
-          {/* Total Time - Auto Expanding */}
+          {/* Total Time - Flexbox Centering Fix */}
           {showTime && (
-              <div className="w-[10%] border-r border-slate-200 print:border-black relative group-time">
-                 {/* Sizer */}
+              <div className="w-[10%] border-r border-slate-200 print:border-black relative group-time flex flex-col justify-center">
+                 {/* Sizer for width/height consistency if other cells wrap */}
                  <div className="invisible px-1 py-1.5 whitespace-pre-wrap break-words text-center min-h-full">
                      {entry.totalTime || '.'}
                  </div>
-                 {/* Content */}
-                 <textarea 
-                    className="absolute inset-0 w-full h-full px-2 py-1.5 outline-none bg-transparent text-black resize-none focus:bg-blue-50/50 transition-colors text-center overflow-hidden"
-                    value={entry.totalTime || ''}
-                    onChange={(e) => handleEntryChange(entry.id, 'totalTime', e.target.value)}
-                    onBlur={(e) => {
-                        const val = e.target.value.trim();
-                        if (val && !val.toLowerCase().endsWith('m') && !val.includes('+') && val.length > 0) {
-                            handleEntryChange(entry.id, 'totalTime', val + 'm');
-                        }
-                    }}
-                 />
+                 
+                 {/* Centered Content */}
+                 <div className="absolute inset-0 flex items-center justify-center">
+                     <textarea 
+                        className="w-full h-auto px-2 py-1.5 outline-none bg-transparent text-black resize-none focus:bg-blue-50/50 transition-colors text-center overflow-hidden"
+                        style={{ height: 'auto', minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        value={entry.totalTime || ''}
+                        onChange={(e) => handleEntryChange(entry.id, 'totalTime', e.target.value)}
+                        onBlur={(e) => {
+                            const val = e.target.value.trim();
+                            if (val && !val.toLowerCase().endsWith('m') && !val.includes('+') && val.length > 0) {
+                                handleEntryChange(entry.id, 'totalTime', val + 'm');
+                            }
+                        }}
+                     />
+                 </div>
 
                 <button 
                     className="absolute right-0 top-0 h-full w-5 flex items-center justify-center text-slate-300 hover:text-blue-600 no-print transition-colors"

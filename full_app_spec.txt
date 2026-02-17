@@ -1,0 +1,214 @@
+MaintLog Pro - Comprehensive Functional & UX Specification
+==========================================================
+Version: 2.1.0
+Generated: 2026-05-20
+
+1. SYSTEM OVERVIEW
+------------------
+MaintLog Pro is a client-side, single-page application (SPA) designed to replace physical industrial maintenance logbooks. It functions as a specialized digital spreadsheet with intelligent data isolation, rich text capabilities, and automated reporting tools.
+
+2. AUTHENTICATION & ACCESS
+--------------------------
+2.1. Login Screen
+   - **UI:** Centralized card with a gradient lock icon (Blue-600 to Blue-800).
+   - **Credentials:** Hardcoded validation (admin/admin, user/pass).
+   - **Feedback:** Invalid credentials trigger a red error banner.
+   - **Persistence:** Login state is saved in LocalStorage (`isLoggedIn`).
+   - **Footer:** Displays Developer credits and version number.
+
+3. GLOBAL LAYOUT & NAVIGATION
+-----------------------------
+3.1. Floating Toolbar (Top)
+   - **Position:** Fixed to top, semi-transparent white background with backdrop blur.
+   - **Left Section:** 
+     - App Icon (FileSpreadsheet) & Title.
+     - **Undo/Redo:** 
+       - Icons: Undo2 / Redo2.
+       - Logic: Tracks last 50 state changes. Buttons disabled (greyed out) if stack is empty.
+       - Shortcut: Ctrl+Z (Undo), Ctrl+Y (Redo).
+     - **Settings Trigger:** Opens the Global Settings Modal.
+   - **Right Section:**
+     - **Auto-Save Indicator:** Green badge "Auto-Saving On" (triggers every 5 seconds).
+     - **Export CSV:** Downloads current view data.
+     - **Print/PDF:** Opens Print Options Modal.
+     - **Logout:** Clears session and returns to Login screen.
+
+3.2. Main Header (Report Context)
+   - **Styling:** Dark Slate (Slate-900) background, rounded top corners (on screen).
+   - **Logo:** Displays user-uploaded company logo (left).
+   - **Title:** Configurable Report Title (default: "Daily Maintenance Activity Report").
+   - **Context Selectors:**
+     - **Section Selector:** Dropdown to switch factory areas (e.g., "Filling", "Packaging").
+       - Includes a "Gear" icon to open Section Manager.
+     - **Date Picker:** Standard HTML date input. Defaults to current date.
+   - **Print View:** 
+     - Header transforms for print: Background becomes white, text becomes black.
+     - Dropdowns are hidden; only selected values are shown as static text.
+
+4. DATA ARCHITECTURE (The "Section" System)
+-------------------------------------------
+4.1. Context Isolation
+   - **Principle:** Changing the "Section" swaps the entire dataset.
+   - **Isolated Data Points:**
+     - Machines List.
+     - Engineers List.
+     - Spare Parts Database.
+     - Daily Logs.
+   - **Storage Keys:** `maintlog_report_{DATE}_{SECTION_NAME}`.
+
+4.2. Section Manager (Modal)
+   - **Function:** Add, Rename, or Delete sections.
+   - **Logic:** 
+     - Renaming a section migrates all associated databases and logs to the new name.
+     - Deleting a section removes all associated config data.
+     - Default section "Filling and Downstream" cannot be deleted (safety lock).
+
+5. SHIFT MANAGEMENT INTERFACE
+-----------------------------
+5.1. Shift Container
+   - **Layout:** Stacked vertically (Night -> Morning -> Evening).
+   - **Color Coding:**
+     - Night: Dark Slate (Title bg: #94a3b8).
+     - Morning: Yellow (Title bg: #fef08a).
+     - Evening: Orange (Title bg: #fed7aa).
+
+5.2. Shift Header
+   - **Title Cell:** Displays Shift Name (e.g., "Night shift report").
+   - **Engineers Cell:**
+     - **Interaction:** Click to open multi-select checkbox popup.
+     - **Popup Features:**
+       - List of available engineers for the current section.
+       - Checkboxes to toggle assignment.
+       - Trash icon (on hover) to permanently delete an engineer from the database.
+       - Input field + "Add" button to create new engineers on the fly.
+     - **Display:** Shows comma-separated list of selected engineers. Placeholder: "Select Engineers...".
+
+6. THE SMART LOG GRID (Detailed Column Specs)
+---------------------------------------------
+6.1. General Row Behavior
+   - **Hover Effect:** Row background highlights (Slate-50).
+   - **Compact Mode:** Settings toggle to reduce row height (28px vs 36px).
+   - **Add Row:** Button at bottom of section to append new empty entry.
+   - **Delete Row:** Trash icon appears on hover in the Notes column. (Optional confirmation prompt via settings).
+
+6.2. Machine Column
+   - **Input:** Text input with HTML `<datalist>` for autocomplete.
+   - **Manager:** "Settings" icon in column header opens Machine Manager.
+     - Add/Edit/Delete machine names.
+     - Validation: Prevents duplicate machine names.
+
+6.3. Line Column
+   - **Visibility:** Toggleable via Settings.
+   - **Interaction:** Read-only input. Click opens "Select Lines" popup.
+   - **Popup:** Checkboxes for "Line 1" through "Line 5".
+   - **Display:** Comma-separated string (e.g., "1, 3").
+
+6.4. Work Description Column (Rich Text & Suggestions)
+   - **Editor:** `contentEditable` div.
+   - **Rich Text Toolbar:**
+     - **Trigger:** Appears *only* when text is selected.
+     - **Formatting:** Bold, Italic, Underline.
+     - **Colors:** Highlight (Yellow), Text Red, Text Blue, Text Green, Reset Black.
+     - **Font Size:** Quick toggles (S, M, L, XL).
+   - **Smart Suggestions (Ghost Text):**
+     - **Logic:** Matches typed text against a dictionary of ~30 default maintenance terms + user-learned terms.
+     - **Visual:** Displays suggestion as grey text ahead of cursor.
+     - **Interaction:** Press `Tab` to accept suggestion.
+     - **Learning:** New unique descriptions are auto-saved to "Learned Suggestions" on blur.
+     - **Rich Text Compat:** Ghost text rendering uses an invisible HTML mirror to ensure pixel-perfect alignment even with bold/colored text.
+
+6.5. Total Time Column
+   - **Visibility:** Toggleable via Settings.
+   - **Input:** Text input (centered vertically/horizontally).
+   - **Formatter:** Auto-appends "m" if user types a raw number (e.g., "30" -> "30m").
+   - **Calculator Tool:**
+     - **Trigger:** Clock icon in cell (top-right).
+     - **Modal:** Allows adding multiple Start/End time pairs (e.g., 08:00-09:00).
+     - **Calculation:** Auto-computes total duration in minutes (e.g., "60m").
+     - **Output:** Writes formatted duration string (e.g., "60m + 30m") to cell.
+
+6.6. Spare Parts & Quantity Columns
+   - **Interaction:** Clicking *either* cell opens the Spare Parts Manager Modal.
+   - **Spare Parts Manager (Modal):**
+     - **Layout:** Split pane (Left: Database, Right: Selected for Entry).
+     - **Database (Left):**
+       - Search bar (filters by Name or Part Number).
+       - List of parts with Name and Part Number.
+       - Actions: Edit (Pencil), Delete (Trash), Create New (+).
+       - Selection: Clicking a part moves it to the Right pane.
+     - **Selected (Right):**
+       - List of parts assigned to this specific log entry.
+       - Quantity Input: Editable field for each selected part.
+       - Remove: 'X' button to unassign part.
+   - **Display in Grid:** 
+     - Parts Column: Concatenated string of names + numbers (newlines supported).
+     - Qty Column: Concatenated string of quantities matching the parts order.
+
+6.7. Notes Column
+   - **Editor:** Rich Text enabled (same features as Description).
+   - **Delete Row:** Container for the row deletion trigger.
+
+7. SETTINGS & CUSTOMIZATION
+---------------------------
+7.1. Visual Settings
+   - **Theme:** 7 Preset color schemes (Blue, Green, Slate, Purple, Orange, Red, Midnight). Changes header and accent colors.
+   - **Typography:**
+     - Font Family: Inter, Roboto, Open Sans, Lato, Courier Prime.
+     - Font Size: S (11px), M (12px), L (14px), XL (16px).
+   - **Compact Mode:** Toggles dense layout.
+
+7.2. Functional Settings
+   - **Smart Suggestions:** Toggle auto-complete.
+   - **Show Line Column:** Toggle visibility.
+   - **Show Time Column:** Toggle visibility.
+   - **Hide Empty Rows (Print):** If checked, rows with no data are excluded from the print view.
+   - **Confirm Delete Row:** Toggle safety prompt.
+   - **Spell Check:** Toggle browser native spellcheck.
+
+7.3. Branding
+   - **Custom Logo:** Upload image (converted to Base64 and stored in LocalStorage).
+   - **Report Title:** Text input to rename the top header.
+   - **Date Format:** ISO, UK (DD/MM/YYYY), US (MM/DD/YYYY).
+
+7.4. Advanced Data Export
+   - **Date Range CSV:** Select Start/End date to export a bulk CSV for AI analysis.
+
+8. OUTPUT & REPORTING
+---------------------
+8.1. Printing
+   - **Engine:** Uses browser native print window (`window.print()`).
+   - **CSS (`@media print`):**
+     - Hides Toolbar, Buttons, Placeholders, Scrollbars, Icons (Settings, Trash, Clock).
+     - Forces High Contrast (Black borders).
+     - Layout: Landscape optimization.
+     - Logo: Scales for print visibility.
+   - **Filtering:** User can choose to print "All Shifts" or a specific single shift.
+
+8.2. CSV Export
+   - **Single Day:** Exports current view.
+   - **Format:** Columns: Date, Section, Shift, Machine, Line, Description, Total Time, Spare Parts, Qty, Notes.
+   - **Sanitization:** Strips HTML tags from Rich Text fields. Escapes quotes for CSV validity.
+
+9. TECHNICAL PERSISTENCE
+------------------------
+9.1. LocalStorage Keys
+   - `isLoggedIn`: Boolean.
+   - `appSettings`: JSON object (theme, fonts, toggles).
+   - `sections`: Array of strings (Section names).
+   - `lastActiveSection`: String.
+   - `machines_{SECTION}`: Array of strings.
+   - `availableEngineers_{SECTION}`: Array of strings.
+   - `sparePartsDB_{SECTION}`: Array of objects.
+   - `maintlog_learned_suggestions`: Array of strings.
+   - `maintlog_report_{DATE}_{SECTION}`: Main data object (Shifts -> Entries).
+
+9.2. Auto-Save
+   - **Mechanism:** `setInterval` runs every 5 seconds.
+   - **Logic:** Checks a `isDirty` ref. If true, writes to LocalStorage and resets flag.
+
+10. KEYBOARD SHORTCUTS
+----------------------
+- **Tab:** Move to next cell.
+- **Tab (in Description):** Accept Ghost Text suggestion.
+- **Ctrl+Z:** Undo last action.
+- **Ctrl+Y:** Redo last action.

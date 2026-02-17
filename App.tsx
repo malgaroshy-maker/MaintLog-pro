@@ -753,6 +753,22 @@ const App: React.FC = () => {
                     </div>
                  </div>
 
+                 {/* Typography Settings (Optimized Font Size Selector) */}
+                 <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Typography</label>
+                    <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
+                        {(['small', 'medium', 'large', 'xl'] as const).map(size => (
+                           <button 
+                              key={size}
+                              onClick={() => setSettings({...settings, fontSize: size})}
+                              className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all ${settings.fontSize === size ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                           >
+                              {size === 'small' ? 'A' : size === 'medium' ? 'Aa' : size === 'large' ? 'AAA' : 'XL'}
+                           </button>
+                        ))}
+                    </div>
+                 </div>
+
                  <div className="space-y-3">
                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Display Options</div>
                    
