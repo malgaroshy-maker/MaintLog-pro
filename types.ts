@@ -59,6 +59,8 @@ export interface AppSettings {
   customLogo?: string; // Base64 string
   dateFormat: 'iso' | 'uk' | 'us';
   reportTitle: string;
+  hideEmptyRowsPrint: boolean;
+  autoCapitalize: boolean;
 }
 
 export const INITIAL_ENTRY: LogEntry = {

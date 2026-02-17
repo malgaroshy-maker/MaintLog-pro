@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ShiftSection from './components/ShiftSection';
 import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings } from './types';
-import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2 } from 'lucide-react';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2 } from 'lucide-react';
 
 const INITIAL_ROWS = 5;
 const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
@@ -93,7 +93,9 @@ const App: React.FC = () => {
         enableSuggestions: true,
         customLogo: '',
         dateFormat: 'iso',
-        reportTitle: 'Daily Maintenance Activity Report'
+        reportTitle: 'Daily Maintenance Activity Report',
+        hideEmptyRowsPrint: false,
+        autoCapitalize: true
     };
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -117,6 +119,10 @@ const App: React.FC = () => {
   // App Data State (The currently loaded report)
   const [report, setReport] = useState<ReportData>(INITIAL_DATA_STRUCT);
   
+  // Undo/Redo Stacks
+  const [history, setHistory] = useState<ReportData[]>([]);
+  const [future, setFuture] = useState<ReportData[]>([]);
+
   // Learned Suggestions State
   const [learnedSuggestions, setLearnedSuggestions] = useState<string[]>(() => {
     const saved = localStorage.getItem('maintlog_learned_suggestions');
@@ -158,6 +164,22 @@ const App: React.FC = () => {
     isDirtyRef.current = true;
   }, [report]);
 
+  // Undo/Redo Keyboard Shortcuts
+  useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+              e.preventDefault();
+              undo();
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+              e.preventDefault();
+              redo();
+          }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [history, future, report]);
+
   // Auto-save interval (every 5 seconds)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -182,6 +204,10 @@ const App: React.FC = () => {
     // 2. Load Report Data
     const specificKey = getStorageKey(date, section);
     const savedSpecific = localStorage.getItem(specificKey);
+
+    // Reset History when loading new report
+    setHistory([]);
+    setFuture([]);
 
     if (savedSpecific) {
         try {
@@ -220,6 +246,38 @@ const App: React.FC = () => {
     });
     // Reset dirty flag for new report
     isDirtyRef.current = false;
+  };
+
+  const updateReport = (newReport: ReportData) => {
+      // Push current state to history before updating
+      setHistory(prev => {
+          const newHistory = [...prev, report];
+          // Limit history size to 50 steps
+          if (newHistory.length > 50) return newHistory.slice(1);
+          return newHistory;
+      });
+      setFuture([]); // Clear redo stack on new action
+      setReport(newReport);
+  };
+
+  const undo = () => {
+      if (history.length === 0) return;
+      const previous = history[history.length - 1];
+      const newHistory = history.slice(0, history.length - 1);
+      
+      setFuture(prev => [report, ...prev]);
+      setHistory(newHistory);
+      setReport(previous);
+  };
+
+  const redo = () => {
+      if (future.length === 0) return;
+      const next = future[0];
+      const newFuture = future.slice(1);
+
+      setHistory(prev => [...prev, report]);
+      setFuture(newFuture);
+      setReport(next);
   };
 
   const migrateLegacyData = (sectionName: string) => {
@@ -356,10 +414,10 @@ const App: React.FC = () => {
   };
 
   const updateShift = (shiftId: 'night' | 'morning' | 'evening', data: ShiftData) => {
-    setReport(prev => ({
-      ...prev,
-      shifts: { ...prev.shifts, [shiftId]: data }
-    }));
+    updateReport({
+      ...report,
+      shifts: { ...report.shifts, [shiftId]: data }
+    });
   };
 
   const handlePrintRequest = () => {
@@ -393,44 +451,36 @@ const App: React.FC = () => {
   // --- Optimized CSV Export Logic ---
   const timeToMinutes = (timeStr: string): string => {
       if (!timeStr) return "0";
-      
       let totalMinutes = 0;
-      // Split by '+' to handle intervals (e.g., "40m+60m")
       const parts = timeStr.split('+');
-      
       parts.forEach(part => {
           const p = part.trim().toLowerCase();
           if (!p) return;
-
           let partVal = 0;
           let matched = false;
-
-          // Check for hours
           const hMatch = p.match(/(\d+)\s*h/);
           if (hMatch) {
               partVal += parseInt(hMatch[1], 10) * 60;
               matched = true;
           }
-          
-          // Check for minutes
           const mMatch = p.match(/(\d+)\s*m/);
           if (mMatch) {
               partVal += parseInt(mMatch[1], 10);
               matched = true;
           }
-          
-          // Fallback for raw numbers without units (treat as minutes)
           if (!matched) {
               const rawNum = parseInt(p.replace(/[^0-9]/g, ''), 10);
-              if (!isNaN(rawNum)) {
-                  partVal += rawNum;
-              }
+              if (!isNaN(rawNum)) partVal += rawNum;
           }
-
           totalMinutes += partVal;
       });
-      
       return totalMinutes.toString();
+  };
+
+  // Helper to strip HTML tags for CSV
+  const stripHtml = (html: string) => {
+      if (!html) return '';
+      return html.replace(/<[^>]*>/g, '').trim();
   };
 
   const generateAIExport = (start: string, end: string) => {
@@ -441,8 +491,6 @@ const App: React.FC = () => {
       // Iterate dates
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
           const dateStr = d.toISOString().split('T')[0];
-          
-          // We need to check all sections for this date since we are aggregating
           sections.forEach(sec => {
               const key = getStorageKey(dateStr, sec);
               const data = localStorage.getItem(key);
@@ -452,9 +500,7 @@ const App: React.FC = () => {
                       (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
                           const shift = reportData.shifts[shiftKey];
                           shift.entries.forEach(entry => {
-                              // Only export rows that have content
                               if (entry.machine || entry.description) {
-                                  // Clean data for CSV (remove newlines from parts, replace with pipe)
                                   const partsClean = (entry.spareParts || '').replace(/\n/g, ' | ').replace(/"/g, '""');
                                   const qtyClean = (entry.quantity || '').replace(/\n/g, ' | ').replace(/"/g, '""');
                                   
@@ -465,11 +511,11 @@ const App: React.FC = () => {
                                       `"${(shift.engineers || '').replace(/"/g, '""')}"`,
                                       `"${(entry.machine || '').replace(/"/g, '""')}"`,
                                       `"${(entry.line || '').replace(/"/g, '""')}"`,
-                                      `"${(entry.description || '').replace(/"/g, '""')}"`,
+                                      `"${stripHtml(entry.description || '').replace(/"/g, '""')}"`,
                                       timeToMinutes(entry.totalTime), // Numeric minutes for AI
                                       `"${partsClean}"`,
                                       `"${qtyClean}"`,
-                                      `"${(entry.notes || '').replace(/"/g, '""')}"`
+                                      `"${stripHtml(entry.notes || '').replace(/"/g, '""')}"`
                                   ]);
                               }
                           });
@@ -490,7 +536,6 @@ const App: React.FC = () => {
   };
 
   const handleExportCSV = () => {
-      // Basic Single Report Export (Legacy/Standard)
       const rows = [['Date', 'Section', 'Shift', 'Machine', 'Line', 'Description', 'Total Time', 'Spare Parts', 'Qty', 'Notes']];
       (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
           const shift = report.shifts[shiftKey];
@@ -502,11 +547,11 @@ const App: React.FC = () => {
                       shift.title,
                       `"${(entry.machine || '').replace(/"/g, '""')}"`,
                       `"${(entry.line || '').replace(/"/g, '""')}"`,
-                      `"${(entry.description || '').replace(/"/g, '""')}"`,
+                      `"${stripHtml(entry.description || '').replace(/"/g, '""')}"`,
                       `"${(entry.totalTime || '').replace(/"/g, '""')}"`,
                       `"${(entry.spareParts || '').replace(/\n/g, '; ').replace(/"/g, '""')}"`,
                       `"${(entry.quantity || '').replace(/\n/g, '; ').replace(/"/g, '""')}"`,
-                      `"${(entry.notes || '').replace(/"/g, '""')}"`
+                      `"${stripHtml(entry.notes || '').replace(/"/g, '""')}"`
                   ]);
               }
           });
@@ -532,7 +577,7 @@ const App: React.FC = () => {
                 evening: createEmptyShift('evening', 'Evening shift report'),
             }
         };
-        setReport(freshReport);
+        updateReport(freshReport);
         localStorage.removeItem(getStorageKey(currentDate, currentSection));
     }
   };
@@ -558,11 +603,12 @@ const App: React.FC = () => {
   // Compute suggestions including history
   const getSuggestions = () => {
     const unique = new Set([...DEFAULT_SUGGESTIONS, ...learnedSuggestions]);
-    // Also include what is currently on screen for immediate consistency
+    // Also include what is currently on screen for immediate consistency, strip HTML
     (Object.values(report.shifts) as ShiftData[]).forEach(shift => {
         shift.entries.forEach(e => {
-            if(e.description && e.description.trim()) {
-                unique.add(e.description.trim());
+            const cleanDesc = stripHtml(e.description);
+            if(cleanDesc && cleanDesc.trim()) {
+                unique.add(cleanDesc.trim());
             }
         })
     });
@@ -707,27 +753,6 @@ const App: React.FC = () => {
                     </div>
                  </div>
 
-                 <div>
-                   <label className="block text-sm font-bold text-slate-700 mb-2">Color Palette</label>
-                   <div className="grid grid-cols-3 gap-2">
-                     {(Object.keys(THEMES) as Array<keyof typeof THEMES>).map(theme => (
-                       <button 
-                         key={theme}
-                         onClick={() => setSettings({...settings, theme})}
-                         className={`h-16 rounded-xl border-2 flex flex-col items-center justify-center relative overflow-hidden transition-all ${settings.theme === theme ? 'border-slate-800 ring-2 ring-slate-200 scale-105' : 'border-slate-100 hover:border-slate-300'}`}
-                       >
-                         <div className="absolute inset-0 flex flex-col">
-                            <div className="h-1/2 w-full" style={{ backgroundColor: THEMES[theme].primary }}></div>
-                            <div className="h-1/2 w-full" style={{ backgroundColor: THEMES[theme].accent }}></div>
-                         </div>
-                         <span className="relative z-10 text-[10px] font-bold text-white bg-black/40 px-1.5 py-0.5 rounded backdrop-blur-sm mt-8">
-                            {THEMES[theme].name}
-                         </span>
-                       </button>
-                     ))}
-                   </div>
-                 </div>
-
                  <div className="space-y-3">
                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Display Options</div>
                    
@@ -773,13 +798,13 @@ const App: React.FC = () => {
                    <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
                       <input 
                         type="checkbox"
-                        checked={settings.showTimeColumn ?? true}
-                        onChange={(e) => setSettings({...settings, showTimeColumn: e.target.checked})}
+                        checked={settings.hideEmptyRowsPrint}
+                        onChange={(e) => setSettings({...settings, hideEmptyRowsPrint: e.target.checked})}
                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       />
                       <div>
-                        <span className="text-sm font-bold text-slate-800 block">Show "Time" Column</span>
-                        <span className="text-xs text-slate-500">Toggle the total time calculator column.</span>
+                        <span className="text-sm font-bold text-slate-800 block">Hide Empty Rows (Print)</span>
+                        <span className="text-xs text-slate-500">Only print rows with data to save paper.</span>
                       </div>
                    </label>
                  </div>
@@ -903,6 +928,25 @@ const App: React.FC = () => {
                 <div>
                     <h1 className="font-bold text-lg text-slate-800 leading-tight">MaintLog Pro</h1>
                     <p className="text-[10px] text-slate-400 font-medium tracking-wide">DIGITAL LOGBOOK</p>
+                </div>
+                <div className="h-6 w-px bg-slate-200 mx-2"></div>
+                <div className="flex gap-1">
+                    <button 
+                        onClick={undo} 
+                        disabled={history.length === 0}
+                        className={`p-2 rounded-lg transition-colors ${history.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                        title="Undo (Ctrl+Z)"
+                    >
+                        <Undo2 size={20} />
+                    </button>
+                    <button 
+                        onClick={redo} 
+                        disabled={future.length === 0}
+                        className={`p-2 rounded-lg transition-colors ${future.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`}
+                        title="Redo (Ctrl+Y)"
+                    >
+                        <Redo2 size={20} />
+                    </button>
                 </div>
                 <div className="h-6 w-px bg-slate-200 mx-2"></div>
                 <button onClick={() => setSettingsOpen(true)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors" title="Settings">

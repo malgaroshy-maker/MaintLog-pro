@@ -1,6 +1,112 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ShiftData, LogEntry, INITIAL_ENTRY, TimeEntry, SparePart, UsedPart, AppSettings } from '../types';
-import { Plus, Trash2, Clock, Check, X, Settings, Search, Save, Pencil } from 'lucide-react';
+import { Plus, Trash2, Clock, Check, X, Settings, Search, Save, Pencil, Bold, Italic, Underline, Highlighter, Palette } from 'lucide-react';
+
+// --- Rich Text Component ---
+interface RichTextCellProps {
+  value: string;
+  onChange: (val: string) => void;
+  onBlur?: (val: string) => void;
+  placeholder?: string;
+  className?: string;
+  suggestionSuffix?: string;
+}
+
+const RichTextCell: React.FC<RichTextCellProps> = ({ value, onChange, onBlur, placeholder, className, suggestionSuffix }) => {
+  const contentEditableRef = useRef<HTMLDivElement>(null);
+  const [showToolbar, setShowToolbar] = useState(false);
+  const [toolbarPos, setToolbarPos] = useState({ top: 0, left: 0 });
+
+  // Safe value handling
+  const safeValue = value || '';
+
+  // Sync value to innerHTML when value changes externally (and not focused)
+  useEffect(() => {
+    if (contentEditableRef.current && document.activeElement !== contentEditableRef.current) {
+       if (contentEditableRef.current.innerHTML !== safeValue) {
+         contentEditableRef.current.innerHTML = safeValue;
+       }
+    }
+  }, [safeValue]);
+
+  const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
+    onChange(e.currentTarget.innerHTML);
+  };
+
+  const handleSelect = () => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && contentEditableRef.current?.contains(selection.anchorNode)) {
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setToolbarPos({
+        top: rect.top - 45, 
+        left: rect.left
+      });
+      setShowToolbar(true);
+    } else {
+      setShowToolbar(false);
+    }
+  };
+
+  const execCmd = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    if (contentEditableRef.current) {
+        onChange(contentEditableRef.current.innerHTML); // Trigger update immediately
+    }
+  };
+
+  return (
+    <>
+      {showToolbar && (
+        <div 
+          className="fixed z-50 bg-slate-800 text-white rounded-lg shadow-xl flex items-center gap-1 p-1 no-print"
+          style={{ top: toolbarPos.top, left: toolbarPos.left }}
+          onMouseDown={(e) => e.preventDefault()} // Prevent losing focus
+        >
+          <button onClick={() => execCmd('bold')} className="p-1.5 hover:bg-slate-700 rounded"><Bold size={14}/></button>
+          <button onClick={() => execCmd('italic')} className="p-1.5 hover:bg-slate-700 rounded"><Italic size={14}/></button>
+          <button onClick={() => execCmd('underline')} className="p-1.5 hover:bg-slate-700 rounded"><Underline size={14}/></button>
+          <button onClick={() => execCmd('backColor', '#fef08a')} className="p-1.5 hover:bg-slate-700 rounded text-yellow-300"><Highlighter size={14}/></button>
+          <div className="w-px h-4 bg-slate-600 mx-0.5"></div>
+          <button onClick={() => execCmd('foreColor', '#ef4444')} className="p-1.5 hover:bg-slate-700 rounded text-red-500"><Palette size={14}/></button>
+          <button onClick={() => execCmd('foreColor', '#3b82f6')} className="p-1.5 hover:bg-slate-700 rounded text-blue-500"><Palette size={14}/></button>
+          <button onClick={() => execCmd('foreColor', '#22c55e')} className="p-1.5 hover:bg-slate-700 rounded text-green-500"><Palette size={14}/></button>
+          <button onClick={() => execCmd('foreColor', '#000000')} className="p-1.5 hover:bg-slate-700 rounded text-white"><X size={14}/></button>
+          <div className="w-px h-4 bg-slate-600 mx-0.5"></div>
+          <button onClick={() => execCmd('fontSize', '3')} className="p-1.5 hover:bg-slate-700 rounded text-xs font-bold">A</button>
+          <button onClick={() => execCmd('fontSize', '5')} className="p-1.5 hover:bg-slate-700 rounded text-lg font-bold">A+</button>
+        </div>
+      )}
+      <div 
+        ref={contentEditableRef}
+        contentEditable
+        className={`w-full min-h-full px-2 py-1.5 outline-none bg-transparent text-black transition-colors whitespace-pre-wrap break-words ${className}`}
+        onInput={handleInput}
+        onBlur={(e) => {
+            setShowToolbar(false);
+            if(onBlur) onBlur(e.currentTarget.innerHTML);
+        }}
+        onSelect={handleSelect}
+        spellCheck={false}
+        suppressContentEditableWarning={true}
+      />
+      {/* Placeholder / Ghost Text Logic */}
+      {(!safeValue || safeValue === '<br>') && placeholder && (
+          <div className="absolute inset-0 px-2 py-1.5 pointer-events-none text-slate-300 truncate text-center">
+              {placeholder}
+          </div>
+      )}
+      {suggestionSuffix && (
+          <div className="absolute inset-0 px-2 py-1.5 pointer-events-none text-center whitespace-pre-wrap break-words font-inter z-0">
+             <span className="opacity-0">{safeValue.replace(/<[^>]*>/g, '')}</span>
+             <span className="text-gray-400 opacity-50">{suggestionSuffix}</span>
+          </div>
+      )}
+    </>
+  );
+};
+
+// --- Main Shift Section ---
 
 interface ShiftSectionProps {
   shift: ShiftData;
@@ -70,10 +176,15 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   const showTime = appSettings?.showTimeColumn ?? true;
   const suggestionsEnabled = appSettings?.enableSuggestions ?? true;
 
-  // Dynamic widths based on visibility
-  let descWidth = 40;
-  if (!showLine) descWidth += 10;
-  if (!showTime) descWidth += 10;
+  // New Weighted Layout for wider notes
+  let descWidth = 32;
+  let notesWidth = 24;
+  
+  if (!showLine) descWidth += 8;
+  if (!showTime) {
+      descWidth += 5;
+      notesWidth += 5;
+  }
 
   const handleEntryChange = (id: string, field: keyof LogEntry, value: string) => {
     const updatedEntries = shift.entries.map(entry => 
@@ -139,7 +250,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   const handleEditMachine = () => {
     if (editMachineName.trim() && editingMachine) {
         const newName = editMachineName.trim();
-        // Prevent duplicate names unless it's the same machine
         if (machines.includes(newName) && newName !== editingMachine) {
              alert('Machine name already exists');
              return;
@@ -169,7 +279,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
 
   const handleSavePart = () => {
     if (newPartForm.name && newPartForm.partNumber) {
-      // Validation Check: duplicate name/number (excluding self if editing)
       const exists = sparePartsDB.find(p => 
           (p.id !== editingPartId) && 
           (p.name.toLowerCase() === newPartForm.name.toLowerCase() || 
@@ -182,14 +291,12 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
       }
 
       if (editingPartId) {
-          // Update Existing Part
           onUpdateSparePartsDB(sparePartsDB.map(p => 
               p.id === editingPartId 
               ? { ...p, name: newPartForm.name, partNumber: newPartForm.partNumber } 
               : p
           ));
       } else {
-          // Create New Part
           const newPart: SparePart = {
             id: crypto.randomUUID(),
             name: newPartForm.name,
@@ -198,7 +305,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
           onUpdateSparePartsDB([...sparePartsDB, newPart]);
       }
       
-      // Reset Form and View
       setNewPartForm({ name: '', partNumber: '' });
       setIsCreatingPart(false);
       setEditingPartId(null);
@@ -216,7 +322,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
       e.stopPropagation();
       if(confirm("Are you sure you want to permanently delete this part from the database?")) {
           onUpdateSparePartsDB(sparePartsDB.filter(p => p.id !== partId));
-          // Remove from current selection if it was selected
           setTempUsedParts(prev => prev.filter(p => p.partId !== partId));
       }
   };
@@ -247,8 +352,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
 
   const saveSpareParts = () => {
     if (!activePartEntryId) return;
-    
-    // Construct display strings
     const partsString = tempUsedParts.map(p => `${p.name} (${p.partNumber})`).join('\n');
     const qtyString = tempUsedParts.map(p => p.quantity).join('\n');
 
@@ -300,11 +403,12 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   // Helper to get suggestion
   const getInlineSuggestion = (val: string) => {
     if (!suggestionsEnabled) return null;
-    if (!val || val.length < 2) return null; // Wait for at least 2 chars
-    // Find first match that strictly starts with val (case insensitive)
-    const match = suggestions.find(s => s.toLowerCase().startsWith(val.toLowerCase()));
-    if (match && match.toLowerCase() !== val.toLowerCase()) {
-        return match;
+    // Strip HTML tags for suggestion check
+    const cleanVal = (val || '').replace(/<[^>]*>/g, '');
+    if (!cleanVal || cleanVal.length < 2) return null; 
+    const match = suggestions.find(s => s.toLowerCase().startsWith(cleanVal.toLowerCase()));
+    if (match && match.toLowerCase() !== cleanVal.toLowerCase()) {
+        return match.slice(cleanVal.length);
     }
     return null;
   };
@@ -383,10 +487,8 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                 <button onClick={() => setActivePartEntryId(null)} className="hover:bg-gray-200 p-1 rounded"><X /></button>
              </div>
              <div className="flex-1 flex overflow-hidden">
-                {/* Left Panel: Database */}
                 <div className="w-1/2 border-r p-4 flex flex-col bg-gray-50">
                    <h4 className="font-bold text-sm mb-2 text-gray-700">Parts Database</h4>
-                   
                    {!isCreatingPart ? (
                      <>
                         <div className="flex gap-2 mb-2">
@@ -422,7 +524,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                                       <div className="text-xs text-gray-500">{part.partNumber}</div>
                                     </div>
                                     <div className="flex items-center gap-1">
-                                        {/* Edit/Delete Actions */}
                                         <button 
                                             onClick={(e) => startEditingPart(part, e)} 
                                             className="p-1 hover:bg-gray-200 rounded text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -437,7 +538,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                                         >
                                             <Trash2 size={14} />
                                         </button>
-                                        
                                         {isSelected && <Check size={16} className="text-blue-600 ml-1" />}
                                     </div>
                                  </div>
@@ -476,8 +576,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                      </div>
                    )}
                 </div>
-
-                {/* Right Panel: Selected */}
                 <div className="w-1/2 p-4 flex flex-col">
                    <h4 className="font-bold text-sm mb-2 text-gray-700">Selected for Intervention</h4>
                    <div className="flex-1 overflow-y-auto border rounded mb-4 p-2 bg-gray-50">
@@ -542,8 +640,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
             >
                 {shift.engineers || <span className="text-slate-400 italic">Select Engineers...</span>}
             </div>
-
-            {/* Engineer Selection Modal */}
             {engineerPopupOpen && (
                 <div className="absolute top-full right-0 mt-1 w-64 bg-white border border-slate-200 shadow-xl rounded-lg z-50 p-3" onClick={e => e.stopPropagation()}>
                     <div className="font-bold text-xs mb-2 text-slate-500 uppercase tracking-wide">Select Engineers:</div>
@@ -600,7 +696,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
            </button>
         </div>
         {showLine && (
-            <div className="w-[10%] border-r border-white/20 flex items-center justify-center">LINE</div>
+            <div className="w-[8%] border-r border-white/20 flex items-center justify-center">LINE</div>
         )}
         <div 
             className="border-r border-white/20 flex items-center justify-center text-center"
@@ -611,21 +707,23 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
         {showTime && (
             <div className="w-[10%] border-r border-white/20 flex items-center justify-center">TOTAL TIME</div>
         )}
-        <div className="w-[12%] border-r border-white/20 flex items-center justify-center">SPARE PARTS USED</div>
-        <div className="w-[8%] border-r border-white/20 flex items-center justify-center">Quantity</div>
-        <div className="w-[10%] flex items-center justify-center">NOTES</div>
+        <div className="w-[10%] border-r border-white/20 flex items-center justify-center">SPARE PARTS USED</div>
+        <div className="w-[6%] border-r border-white/20 flex items-center justify-center">Qty</div>
+        <div className="flex items-center justify-center" style={{ width: `${notesWidth}%` }}>NOTES</div>
       </div>
 
       {/* Rows */}
       {shift.entries.map((entry) => {
-        // Calculate suggestion for this entry
-        const inlineSuggestion = getInlineSuggestion(entry.description);
-        const suggestionSuffix = inlineSuggestion ? inlineSuggestion.slice(entry.description.length) : '';
+        const suggestionSuffix = getInlineSuggestion(entry.description);
+        
+        // Logic to hide empty rows in print
+        const isEmpty = !entry.description && !entry.machine && !entry.notes;
+        const hideInPrint = appSettings?.hideEmptyRowsPrint && isEmpty;
 
         return (
         <div 
           key={entry.id} 
-          className={`flex border-b border-slate-200 print:border-black hover:bg-slate-50 transition-colors group relative ${compactMode ? 'min-h-[28px]' : 'min-h-[36px]'}`}
+          className={`flex border-b border-slate-200 print:border-black hover:bg-slate-50 transition-colors group relative ${compactMode ? 'min-h-[28px]' : 'min-h-[36px]'} ${hideInPrint ? 'print:hidden' : ''}`}
         >
           
           {/* Machine */}
@@ -633,7 +731,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
             <input 
                 list="machine-options"
                 className="w-full h-full px-2 outline-none bg-transparent text-black placeholder-slate-300 focus:bg-blue-50/50 transition-colors text-center"
-                value={entry.machine}
+                value={entry.machine || ''}
                 onChange={(e) => handleEntryChange(entry.id, 'machine', e.target.value)}
                 spellCheck={appSettings?.enableSpellCheck}
                 placeholder="-"
@@ -642,11 +740,11 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
 
           {/* Line */}
           {showLine && (
-              <div className="w-[10%] border-r border-slate-200 print:border-black relative">
+              <div className="w-[8%] border-r border-slate-200 print:border-black relative">
                 <input 
                     readOnly
                     className="w-full h-full px-2 outline-none bg-transparent cursor-pointer text-black hover:bg-slate-100 focus:bg-blue-50/50 transition-colors text-center"
-                    value={entry.line}
+                    value={entry.line || ''}
                     onClick={() => setActiveLinePopup(activeLinePopup === entry.id ? null : entry.id)}
                 />
                 {activeLinePopup === entry.id && (
@@ -656,7 +754,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                             <label key={num} className="flex items-center gap-2 mb-1.5 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
                                 <input 
                                     type="checkbox" 
-                                    checked={entry.line?.split(', ').includes(num)}
+                                    checked={(entry.line || '').split(', ').includes(num)}
                                     onChange={() => toggleLine(entry.id, num)}
                                     className="rounded text-blue-600 focus:ring-blue-500 border-slate-300"
                                 />
@@ -674,56 +772,43 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
               </div>
           )}
 
-          {/* Description - Auto Expanding Sizer Strategy */}
+          {/* Description - Rich Text */}
           <div className="border-r border-slate-200 print:border-black relative" style={{ width: `${descWidth}%` }}>
-            {/* Sizer Div - Controls Height */}
-            <div className="invisible px-2 py-1.5 whitespace-pre-wrap break-words font-inter text-center min-h-full">
-                {entry.description || '.'}
-            </div>
-
-            {/* Actual Input */}
-            <textarea 
-                className="absolute inset-0 w-full h-full px-2 py-1.5 outline-none bg-transparent text-black resize-none focus:bg-blue-50/50 transition-colors text-center font-inter overflow-hidden"
-                value={entry.description}
-                onChange={(e) => handleEntryChange(entry.id, 'description', e.target.value)}
-                onBlur={(e) => {
-                    if (onLearnSuggestion) {
-                        onLearnSuggestion(e.target.value);
-                    }
-                }}
-                onKeyDown={(e) => {
-                    if (e.key === 'Tab' && inlineSuggestion) {
-                        e.preventDefault();
-                        handleEntryChange(entry.id, 'description', inlineSuggestion);
-                    }
-                }}
-                spellCheck={appSettings?.enableSpellCheck}
-                autoComplete="off"
+            <RichTextCell 
+               value={entry.description || ''}
+               onChange={(val) => handleEntryChange(entry.id, 'description', val)}
+               onBlur={(val) => {
+                  if (onLearnSuggestion) {
+                      // Strip HTML for learning mechanism
+                      onLearnSuggestion(val.replace(/<[^>]*>/g, ''));
+                  }
+               }}
+               suggestionSuffix={suggestionSuffix || undefined}
+               placeholder=""
+               className="text-center font-inter"
             />
-            
-            {/* Ghost Overlay */}
-            {suggestionsEnabled && entry.description && (
-                <div className="absolute inset-0 px-2 py-1.5 pointer-events-none text-center whitespace-pre-wrap break-words font-inter">
-                    <span className="opacity-0">{entry.description}</span>
-                    <span className="text-gray-400 opacity-50">{suggestionSuffix}</span>
-                </div>
-            )}
           </div>
 
-          {/* Total Time */}
+          {/* Total Time - Auto Expanding */}
           {showTime && (
               <div className="w-[10%] border-r border-slate-200 print:border-black relative group-time">
-                <input 
-                    className="w-full h-full px-2 outline-none text-center bg-transparent text-black focus:bg-blue-50/50 transition-colors"
-                    value={entry.totalTime}
+                 {/* Sizer */}
+                 <div className="invisible px-1 py-1.5 whitespace-pre-wrap break-words text-center min-h-full">
+                     {entry.totalTime || '.'}
+                 </div>
+                 {/* Content */}
+                 <textarea 
+                    className="absolute inset-0 w-full h-full px-2 py-1.5 outline-none bg-transparent text-black resize-none focus:bg-blue-50/50 transition-colors text-center overflow-hidden"
+                    value={entry.totalTime || ''}
                     onChange={(e) => handleEntryChange(entry.id, 'totalTime', e.target.value)}
                     onBlur={(e) => {
                         const val = e.target.value.trim();
-                        if (val && !val.toLowerCase().endsWith('m')) {
+                        if (val && !val.toLowerCase().endsWith('m') && !val.includes('+') && val.length > 0) {
                             handleEntryChange(entry.id, 'totalTime', val + 'm');
                         }
                     }}
-                />
+                 />
+
                 <button 
                     className="absolute right-0 top-0 h-full w-5 flex items-center justify-center text-slate-300 hover:text-blue-600 no-print transition-colors"
                     onClick={() => openTimeCalculator(entry)}
@@ -799,7 +884,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
 
           {/* Spare Parts (Swapped) - Auto Expanding */}
           <div 
-             className="w-[12%] border-r border-slate-200 print:border-black relative flex flex-col justify-center cursor-pointer hover:bg-blue-50/50 transition-colors"
+             className="w-[10%] border-r border-slate-200 print:border-black relative flex flex-col justify-center cursor-pointer hover:bg-blue-50/50 transition-colors"
              onClick={() => openSparePartsModal(entry)}
           >
              {/* Sizer */}
@@ -813,7 +898,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
           </div>
 
           {/* Quantity (Swapped) - Auto Expanding */}
-          <div className="w-[8%] border-r border-slate-200 print:border-black relative flex flex-col justify-center pointer-events-none">
+          <div className="w-[6%] border-r border-slate-200 print:border-black relative flex flex-col justify-center pointer-events-none">
              {/* Sizer */}
              <div className="invisible px-1 py-1.5 whitespace-pre-wrap break-words text-center text-sm min-h-full">
                  {entry.quantity || '.'}
@@ -824,19 +909,13 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
              </div>
           </div>
 
-          {/* Notes - Auto Expanding */}
-          <div className="w-[10%] relative">
-             {/* Sizer */}
-             <div className="invisible px-2 py-1.5 whitespace-pre-wrap break-words text-center min-h-full">
-                 {entry.notes || '.'}
-             </div>
-
-             <textarea 
-                className="absolute inset-0 w-full h-full px-2 py-1.5 outline-none bg-transparent text-black resize-none focus:bg-blue-50/50 transition-colors text-center overflow-hidden"
-                value={entry.notes}
-                onChange={(e) => handleEntryChange(entry.id, 'notes', e.target.value)}
-                spellCheck={appSettings?.enableSpellCheck}
-            />
+          {/* Notes - Rich Text */}
+          <div className="relative" style={{ width: `${notesWidth}%` }}>
+             <RichTextCell 
+                value={entry.notes || ''}
+                onChange={(val) => handleEntryChange(entry.id, 'notes', val)}
+                className="text-center font-inter"
+             />
              <button 
                 onClick={() => removeRow(entry.id)}
                 className="absolute right-0 top-0 h-full w-8 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 transition-all no-print"
