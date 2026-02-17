@@ -790,9 +790,165 @@ const App: React.FC = () => {
   }
 
   // --- AI TOOL EXECUTION ---
+  
+  // Helper logic for adding an entry to a report object (Pure function style)
+  const addEntryToReportObject = (reportObj: ReportData, args: any, currentSparePartsDB: SparePart[]) => {
+      const shiftId = args.shift?.toLowerCase() as 'night'|'morning'|'evening';
+      if (!shiftId || !['night','morning','evening'].includes(shiftId)) {
+          throw new Error("Invalid shift specified.");
+      }
+      
+      const shift = reportObj.shifts[shiftId];
+      // Find first empty entry or create new
+      const emptyEntry = shift.entries.find(e => !e.machine && !e.description);
+      let newEntries = [...shift.entries];
+      
+      // Process Used Parts
+      let usedPartsData: UsedPart[] = [];
+      let sparePartsString = "";
+      let quantityString = "";
+
+      if (args.used_parts && Array.isArray(args.used_parts)) {
+          usedPartsData = args.used_parts.map((up: any) => {
+              const dbPart = currentSparePartsDB.find(p => p.name.toLowerCase() === up.name.toLowerCase());
+              const partName = dbPart ? dbPart.name : up.name;
+              const partNum = dbPart ? dbPart.partNumber : "N/A";
+              const partId = dbPart ? dbPart.id : crypto.randomUUID(); 
+              
+              return {
+                  partId: partId,
+                  name: partName,
+                  partNumber: partNum,
+                  quantity: up.quantity || "1"
+              };
+          });
+
+          sparePartsString = usedPartsData.map(p => `${p.name} (${p.partNumber})`).join('\n');
+          quantityString = usedPartsData.map(p => p.quantity).join('\n');
+      }
+
+      const entryData = {
+          machine: args.machine || '',
+          line: args.line || '',
+          description: args.description || '',
+          notes: args.notes || '',
+          totalTime: args.totalTime || '',
+          spareParts: sparePartsString,
+          quantity: quantityString,
+          usedParts: usedPartsData
+      };
+
+      if (emptyEntry) {
+          newEntries = newEntries.map(e => e.id === emptyEntry.id ? { ...e, ...entryData } : e);
+      } else {
+          newEntries.push({ ...INITIAL_ENTRY, id: crypto.randomUUID(), ...entryData });
+      }
+
+      return {
+          ...reportObj,
+          shifts: {
+              ...reportObj.shifts,
+              [shiftId]: { ...shift, entries: newEntries }
+          }
+      };
+  };
+
   const handleAiToolAction = async (toolName: string, args: any): Promise<any> => {
       console.log(`Executing tool: ${toolName}`, args);
       
+      if (toolName === 'manage_engineers') {
+          return new Promise((resolve) => {
+              const { action, names, shift, date } = args;
+              const targetDate = date || currentDate;
+
+              if (!names || !Array.isArray(names)) {
+                  resolve("Error: 'names' must be an array.");
+                  return;
+              }
+
+              if (action === 'add_to_database') {
+                  setAvailableEngineers(prev => {
+                      const newSet = new Set(prev);
+                      names.forEach((n: string) => newSet.add(n));
+                      const updated = Array.from(newSet);
+                      localStorage.setItem(`availableEngineers_${currentSection}`, JSON.stringify(updated));
+                      resolve(`Added ${names.join(", ")} to engineer database.`);
+                      return updated;
+                  });
+              } else if (action === 'remove_from_database') {
+                  setAvailableEngineers(prev => {
+                      const updated = prev.filter(n => !names.includes(n));
+                      localStorage.setItem(`availableEngineers_${currentSection}`, JSON.stringify(updated));
+                      resolve(`Removed ${names.join(", ")} from engineer database.`);
+                      return updated;
+                  });
+              } else if (action === 'assign_to_shift') {
+                   // Ensure names exist in DB first (auto-add)
+                   setAvailableEngineers(prev => {
+                       const newSet = new Set(prev);
+                       names.forEach((n: string) => newSet.add(n));
+                       const updated = Array.from(newSet);
+                       // Only update localStorage if changes occurred
+                       if (updated.length !== prev.length) {
+                           localStorage.setItem(`availableEngineers_${currentSection}`, JSON.stringify(updated));
+                       }
+                       return updated;
+                   });
+                   
+                   // Now assign to shift
+                   const shiftId = shift?.toLowerCase() as 'night'|'morning'|'evening';
+                   if (!shiftId || !['night','morning','evening'].includes(shiftId)) {
+                       resolve("Error: Invalid shift specified for assignment.");
+                       return;
+                   }
+
+                   if (targetDate === currentDate) {
+                       setReport(prev => {
+                           const newReport = {
+                               ...prev,
+                               shifts: {
+                                   ...prev.shifts,
+                                   [shiftId]: {
+                                       ...prev.shifts[shiftId],
+                                       engineers: names.join(", ")
+                                   }
+                               }
+                           };
+                           resolve(`Assigned ${names.join(", ")} to ${shiftId} shift.`);
+                           return newReport;
+                       });
+                   } else {
+                        // Background update
+                        try {
+                            const key = getStorageKey(targetDate, currentSection);
+                            const storedData = localStorage.getItem(key);
+                            let targetReport: ReportData;
+                            if (storedData) {
+                                targetReport = JSON.parse(storedData);
+                            } else {
+                                targetReport = {
+                                    section: currentSection,
+                                    date: targetDate,
+                                    shifts: {
+                                        night: createEmptyShift('night', 'Night shift report'),
+                                        morning: createEmptyShift('morning', 'Morning shift report'),
+                                        evening: createEmptyShift('evening', 'Evening shift report'),
+                                    }
+                                };
+                            }
+                            targetReport.shifts[shiftId].engineers = names.join(", ");
+                            localStorage.setItem(key, JSON.stringify(targetReport));
+                            resolve(`Assigned ${names.join(", ")} to ${shiftId} shift on ${targetDate} (saved).`);
+                        } catch(e: any) {
+                            resolve(`Error updating background report: ${e.message}`);
+                        }
+                   }
+              } else {
+                  resolve("Unknown action.");
+              }
+          });
+      }
+
       if (toolName === 'add_spare_part') {
           return new Promise((resolve) => {
               setSparePartsDB(currentDB => {
@@ -826,75 +982,52 @@ const App: React.FC = () => {
       }
 
       if (toolName === 'add_log_entry') {
-          return new Promise((resolve) => {
-             setReport(prevReport => {
-                const shiftId = args.shift?.toLowerCase() as 'night'|'morning'|'evening';
-                if (!shiftId || !['night','morning','evening'].includes(shiftId)) {
-                    resolve("Error: Invalid shift specified.");
-                    return prevReport;
-                }
-                
-                const shift = prevReport.shifts[shiftId];
-                // Find first empty entry or create new
-                const emptyEntry = shift.entries.find(e => !e.machine && !e.description);
-                let newEntries = [...shift.entries];
-                
-                // Process Used Parts
-                let usedPartsData: UsedPart[] = [];
-                let sparePartsString = "";
-                let quantityString = "";
+          const targetDate = args.date || currentDate;
+          
+          // Check if we are modifying the currently viewed report
+          if (targetDate === currentDate) {
+              return new Promise((resolve) => {
+                  setReport(prevReport => {
+                      try {
+                          const newReport = addEntryToReportObject(prevReport, args, sparePartsDB);
+                          resolve(`Successfully added entry to ${args.shift} shift for machine ${args.machine} on ${targetDate}.`);
+                          return newReport;
+                      } catch (e: any) {
+                          resolve(`Error: ${e.message}`);
+                          return prevReport;
+                      }
+                  });
+              });
+          } else {
+              // Modifying a background/past report in LocalStorage
+              try {
+                  const key = getStorageKey(targetDate, currentSection);
+                  const storedData = localStorage.getItem(key);
+                  
+                  let targetReport: ReportData;
+                  if (storedData) {
+                      targetReport = JSON.parse(storedData);
+                  } else {
+                      // Create fresh report if it doesn't exist
+                       targetReport = {
+                          section: currentSection,
+                          date: targetDate,
+                          shifts: {
+                              night: createEmptyShift('night', 'Night shift report'),
+                              morning: createEmptyShift('morning', 'Morning shift report'),
+                              evening: createEmptyShift('evening', 'Evening shift report'),
+                          }
+                      };
+                  }
 
-                if (args.used_parts && Array.isArray(args.used_parts)) {
-                    usedPartsData = args.used_parts.map((up: any) => {
-                        // IMPORTANT: Read from CURRENT sparePartsDB in closure might be stale if called immediately after adding part.
-                        // Ideally we would read from functional update of DB, but these are separate states.
-                        // We gracefully fallback to provided names if DB not found (which is fine for this app).
-                        
-                        const dbPart = sparePartsDB.find(p => p.name.toLowerCase() === up.name.toLowerCase());
-                        const partName = dbPart ? dbPart.name : up.name;
-                        const partNum = dbPart ? dbPart.partNumber : "N/A";
-                        const partId = dbPart ? dbPart.id : crypto.randomUUID(); 
-                        
-                        return {
-                            partId: partId,
-                            name: partName,
-                            partNumber: partNum,
-                            quantity: up.quantity || "1"
-                        };
-                    });
+                  const updatedReport = addEntryToReportObject(targetReport, args, sparePartsDB);
+                  localStorage.setItem(key, JSON.stringify(updatedReport));
+                  return `Successfully added entry to ${args.shift} shift for machine ${args.machine} on ${targetDate} (saved to database).`;
 
-                    sparePartsString = usedPartsData.map(p => `${p.name} (${p.partNumber})`).join('\n');
-                    quantityString = usedPartsData.map(p => p.quantity).join('\n');
-                }
-
-                const entryData = {
-                    machine: args.machine || '',
-                    line: args.line || '',
-                    description: args.description || '',
-                    notes: args.notes || '',
-                    totalTime: args.totalTime || '',
-                    spareParts: sparePartsString,
-                    quantity: quantityString,
-                    usedParts: usedPartsData
-                };
-
-                if (emptyEntry) {
-                    newEntries = newEntries.map(e => e.id === emptyEntry.id ? { ...e, ...entryData } : e);
-                } else {
-                    newEntries.push({ ...INITIAL_ENTRY, id: crypto.randomUUID(), ...entryData });
-                }
-
-                const newReport = {
-                    ...prevReport,
-                    shifts: {
-                        ...prevReport.shifts,
-                        [shiftId]: { ...shift, entries: newEntries }
-                    }
-                };
-                resolve(`Successfully added entry to ${shiftId} shift for machine ${args.machine}.`);
-                return newReport;
-             });
-          });
+              } catch (e: any) {
+                  return `Error updating background report: ${e.message}`;
+              }
+          }
       } else if (toolName === 'change_date') {
           if (args.date) {
               setCurrentDate(args.date);
@@ -971,6 +1104,8 @@ const App: React.FC = () => {
         apiKey={settings.geminiApiKey} 
         report={report}
         sparePartsDB={sparePartsDB}
+        machines={machines}
+        availableEngineers={availableEngineers}
         onToolAction={handleAiToolAction}
       />
 
