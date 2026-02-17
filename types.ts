@@ -55,6 +55,8 @@ export interface AppSettings {
   enableSpellCheck: boolean;
   showLineColumn: boolean;
   showTimeColumn: boolean;
+  enableSuggestions: boolean;
+  customLogo?: string; // Base64 string
 }
 
 export const INITIAL_ENTRY: LogEntry = {

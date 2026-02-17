@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ShiftSection from './components/ShiftSection';
 import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings } from './types';
-import { Printer, Save, Trash2, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Menu, Calendar, Briefcase, Eye, Layout } from 'lucide-react';
+import { Printer, Save, Trash2, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Menu, Calendar, Briefcase, Eye, Layout, Upload, Download } from 'lucide-react';
 
 const INITIAL_ROWS = 5;
 const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
@@ -89,7 +89,9 @@ const App: React.FC = () => {
         confirmDeleteRow: true,
         enableSpellCheck: false,
         showLineColumn: true,
-        showTimeColumn: true
+        showTimeColumn: true,
+        enableSuggestions: true,
+        customLogo: ''
     };
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -105,6 +107,10 @@ const App: React.FC = () => {
   const [currentSection, setCurrentSection] = useState(() => {
      return localStorage.getItem('lastActiveSection') || DEFAULT_SECTIONS[0];
   });
+
+  // Export Range State
+  const [exportStart, setExportStart] = useState(new Date().toISOString().split('T')[0]);
+  const [exportEnd, setExportEnd] = useState(new Date().toISOString().split('T')[0]);
 
   // App Data State (The currently loaded report)
   const [report, setReport] = useState<ReportData>(INITIAL_DATA_STRUCT);
@@ -372,7 +378,88 @@ const App: React.FC = () => {
       }, 100);
   };
 
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              const base64String = reader.result as string;
+              setSettings({ ...settings, customLogo: base64String });
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
+  // --- Optimized CSV Export Logic ---
+  const timeToMinutes = (timeStr: string): string => {
+      if (!timeStr) return "0";
+      // Assumes format like "1h 30m" or "45m"
+      let minutes = 0;
+      const hMatch = timeStr.match(/(\d+)h/);
+      const mMatch = timeStr.match(/(\d+)m/);
+      if (hMatch) minutes += parseInt(hMatch[1]) * 60;
+      if (mMatch) minutes += parseInt(mMatch[1]);
+      return minutes.toString();
+  };
+
+  const generateAIExport = (start: string, end: string) => {
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      const rows = [['Date', 'Section', 'Shift', 'Engineer_Team', 'Machine', 'Line', 'Description', 'Total_Minutes', 'Spare_Parts', 'Spare_Parts_Qty', 'Notes']];
+
+      // Iterate dates
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().split('T')[0];
+          
+          // We need to check all sections for this date since we are aggregating
+          sections.forEach(sec => {
+              const key = getStorageKey(dateStr, sec);
+              const data = localStorage.getItem(key);
+              if (data) {
+                  try {
+                      const reportData: ReportData = JSON.parse(data);
+                      (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
+                          const shift = reportData.shifts[shiftKey];
+                          shift.entries.forEach(entry => {
+                              // Only export rows that have content
+                              if (entry.machine || entry.description) {
+                                  // Clean data for CSV (remove newlines from parts, replace with pipe)
+                                  const partsClean = (entry.spareParts || '').replace(/\n/g, ' | ').replace(/"/g, '""');
+                                  const qtyClean = (entry.quantity || '').replace(/\n/g, ' | ').replace(/"/g, '""');
+                                  
+                                  rows.push([
+                                      reportData.date,
+                                      reportData.section,
+                                      shiftKey, // standardized shift name
+                                      `"${(shift.engineers || '').replace(/"/g, '""')}"`,
+                                      `"${(entry.machine || '').replace(/"/g, '""')}"`,
+                                      `"${(entry.line || '').replace(/"/g, '""')}"`,
+                                      `"${(entry.description || '').replace(/"/g, '""')}"`,
+                                      timeToMinutes(entry.totalTime), // Numeric minutes for AI
+                                      `"${partsClean}"`,
+                                      `"${qtyClean}"`,
+                                      `"${(entry.notes || '').replace(/"/g, '""')}"`
+                                  ]);
+                              }
+                          });
+                      });
+                  } catch (e) { console.error("Error parsing report for export", e); }
+              }
+          });
+      }
+
+      const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `MaintLog_AI_Data_${start}_to_${end}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
   const handleExportCSV = () => {
+      // Basic Single Report Export (Legacy/Standard)
       const rows = [['Date', 'Section', 'Shift', 'Machine', 'Line', 'Description', 'Total Time', 'Spare Parts', 'Qty', 'Notes']];
       (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
           const shift = report.shifts[shiftKey];
@@ -421,6 +508,8 @@ const App: React.FC = () => {
 
   // Learning Mechanism
   const handleLearnSuggestion = (text: string) => {
+      if (!settings.enableSuggestions) return;
+      
       const cleanText = text.trim();
       if (!cleanText || cleanText.length < 3) return; // Ignore empty or very short words
 
@@ -520,6 +609,55 @@ const App: React.FC = () => {
              
              {/* ... Settings Content ... */}
              <div className="space-y-6">
+                 
+                 {/* Branding */}
+                 <div>
+                   <label className="block text-sm font-bold text-slate-700 mb-2">Company Branding</label>
+                   <div className="flex items-center gap-4">
+                       <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                           {settings.customLogo ? (
+                               <img src={settings.customLogo} alt="Logo" className="w-full h-full object-contain" />
+                           ) : (
+                               <span className="text-xs text-slate-400">No Logo</span>
+                           )}
+                       </div>
+                       <label className="flex-1 cursor-pointer bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors text-center">
+                           <Upload size={16} className="inline mr-2" />
+                           Upload New Logo
+                           <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                       </label>
+                       {settings.customLogo && (
+                           <button onClick={() => setSettings({...settings, customLogo: ''})} className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
+                               <Trash2 size={16} />
+                           </button>
+                       )}
+                   </div>
+                 </div>
+
+                 {/* Advanced Data Export */}
+                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                     <label className="block text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
+                         <Download size={16}/> Advanced Data Export
+                     </label>
+                     <p className="text-xs text-blue-700 mb-3">Export optimized CSV for AI analysis over a date range.</p>
+                     <div className="flex gap-2 mb-2">
+                         <div className="flex-1">
+                             <label className="text-[10px] uppercase font-bold text-blue-500">Start</label>
+                             <input type="date" value={exportStart} onChange={e => setExportStart(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
+                         </div>
+                         <div className="flex-1">
+                             <label className="text-[10px] uppercase font-bold text-blue-500">End</label>
+                             <input type="date" value={exportEnd} onChange={e => setExportEnd(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
+                         </div>
+                     </div>
+                     <button 
+                         onClick={() => generateAIExport(exportStart, exportEnd)}
+                         className="w-full bg-blue-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                     >
+                         Download Data Range CSV
+                     </button>
+                 </div>
+
                  <div>
                    <label className="block text-sm font-bold text-slate-700 mb-2">Color Palette</label>
                    <div className="grid grid-cols-3 gap-2">
@@ -541,33 +679,22 @@ const App: React.FC = () => {
                    </div>
                  </div>
 
-                 <div>
-                   <label className="block text-sm font-bold text-slate-700 mb-2">Typography</label>
-                   <select 
-                     value={settings.fontFamily} 
-                     onChange={(e) => setSettings({...settings, fontFamily: e.target.value as any})}
-                     className="w-full border border-slate-200 p-2.5 rounded-lg text-slate-700 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none mb-3"
-                   >
-                     {Object.keys(FONT_FAMILIES).map(font => (
-                       <option key={font} value={font}>{font}</option>
-                     ))}
-                   </select>
-                   <div className="flex gap-2">
-                     {(['small', 'medium', 'large', 'xl'] as const).map(size => (
-                       <button 
-                          key={size}
-                          onClick={() => setSettings({...settings, fontSize: size})}
-                          className={`flex-1 py-2 border rounded-lg text-xs font-medium transition-colors ${settings.fontSize === size ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                       >
-                         {size.toUpperCase()}
-                       </button>
-                     ))}
-                   </div>
-                 </div>
-
                  <div className="space-y-3">
                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Display Options</div>
                    
+                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox"
+                        checked={settings.enableSuggestions}
+                        onChange={(e) => setSettings({...settings, enableSuggestions: e.target.checked})}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-sm font-bold text-slate-800 block">Smart Suggestions</span>
+                        <span className="text-xs text-slate-500">Enable autocomplete for work descriptions.</span>
+                      </div>
+                   </label>
+
                    <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
                       <input 
                         type="checkbox"
@@ -604,34 +731,6 @@ const App: React.FC = () => {
                       <div>
                         <span className="text-sm font-bold text-slate-800 block">Show "Time" Column</span>
                         <span className="text-xs text-slate-500">Toggle the total time calculator column.</span>
-                      </div>
-                   </label>
-
-                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">System</div>
-
-                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                      <input 
-                        type="checkbox"
-                        checked={settings.confirmDeleteRow}
-                        onChange={(e) => setSettings({...settings, confirmDeleteRow: e.target.checked})}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <div>
-                        <span className="text-sm font-bold text-slate-800 block">Confirm Row Deletion</span>
-                        <span className="text-xs text-slate-500">Ask before deleting a log entry row.</span>
-                      </div>
-                   </label>
-                   
-                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                      <input 
-                        type="checkbox"
-                        checked={settings.enableSpellCheck}
-                        onChange={(e) => setSettings({...settings, enableSpellCheck: e.target.checked})}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <div>
-                        <span className="text-sm font-bold text-slate-800 block">Enable Spell Check</span>
-                        <span className="text-xs text-slate-500">Show red underlines for typos.</span>
                       </div>
                    </label>
                  </div>
@@ -764,9 +863,13 @@ const App: React.FC = () => {
         {/* Modern Header */}
         <div className="bg-slate-900 text-white p-6 rounded-t-xl print:rounded-none print:p-4 print:bg-white print:text-black print:border-b-2 print:border-black">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-            <div>
-               <h1 className="text-2xl font-bold uppercase tracking-wider text-blue-400 print:text-black mb-1">Daily Maintenance Activity Report</h1>
-               {/* Removed Industrial Engineering Department text */}
+            <div className="flex items-center gap-4">
+               {settings.customLogo && (
+                   <img src={settings.customLogo} alt="Company Logo" className="h-12 w-auto object-contain bg-white/10 rounded p-1" />
+               )}
+               <div>
+                   <h1 className="text-2xl font-bold uppercase tracking-wider text-blue-400 print:text-black mb-1">Daily Maintenance Activity Report</h1>
+               </div>
             </div>
             
             <div className="flex gap-6 w-full md:w-auto">

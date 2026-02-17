@@ -65,12 +65,10 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   // Time Calculator State
   const [timeRows, setTimeRows] = useState<TimeEntry[]>([{start: '', end: ''}]);
 
-  // Description Autocomplete State
-  const [activeDescPopup, setActiveDescPopup] = useState<string | null>(null);
-
   // Determine column visibility
   const showLine = appSettings?.showLineColumn ?? true;
   const showTime = appSettings?.showTimeColumn ?? true;
+  const suggestionsEnabled = appSettings?.enableSuggestions ?? true;
 
   // Dynamic widths based on visibility
   let descWidth = 40;
@@ -301,6 +299,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
 
   // Helper to get suggestion
   const getInlineSuggestion = (val: string) => {
+    if (!suggestionsEnabled) return null;
     if (!val || val.length < 2) return null; // Wait for at least 2 chars
     // Find first match that strictly starts with val (case insensitive)
     const match = suggestions.find(s => s.toLowerCase().startsWith(val.toLowerCase()));
@@ -315,7 +314,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   return (
     <div className={`flex flex-col border-x border-slate-300 print:border-2 print-border-black relative mb-4 print:mb-0 bg-white shadow-sm print:shadow-none rounded-lg overflow-visible print:rounded-none`}>
       {/* Global Overlay */}
-      {(activeLinePopup || activeTimePopup || engineerPopupOpen || machineManagerOpen || activePartEntryId || activeDescPopup) && (
+      {(activeLinePopup || activeTimePopup || engineerPopupOpen || machineManagerOpen || activePartEntryId) && (
           <div 
             className="fixed inset-0 bg-black/20 z-10" 
             onClick={() => {
@@ -324,7 +323,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                 setEngineerPopupOpen(false);
                 setMachineManagerOpen(false);
                 setActivePartEntryId(null);
-                setActiveDescPopup(null);
             }} 
           />
       )}
@@ -680,22 +678,22 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
           <div className="border-r border-slate-200 print:border-black relative" style={{ width: `${descWidth}%` }}>
             <div className="relative w-full h-full">
                 {/* Ghost Overlay */}
-                <div className="absolute inset-0 px-2 py-1.5 text-left pointer-events-none whitespace-pre-wrap overflow-hidden font-inter z-0">
-                    <span className="opacity-0">{entry.description}</span>
-                    <span className="text-gray-400 opacity-50">{suggestionSuffix}</span>
-                </div>
+                {suggestionsEnabled && (
+                  <div className="absolute inset-0 px-2 py-1.5 text-left pointer-events-none whitespace-pre-wrap overflow-hidden font-inter z-0">
+                      <span className="opacity-0">{entry.description}</span>
+                      <span className="text-gray-400 opacity-50">{suggestionSuffix}</span>
+                  </div>
+                )}
                 
                 <textarea 
                     className="w-full h-full px-2 outline-none bg-transparent text-black resize-none py-1.5 focus:bg-blue-50/50 transition-colors text-left font-inter relative z-10"
                     rows={1}
                     value={entry.description}
                     onChange={(e) => handleEntryChange(entry.id, 'description', e.target.value)}
-                    onFocus={() => setActiveDescPopup(entry.id)}
                     onBlur={(e) => {
                         if (onLearnSuggestion) {
                             onLearnSuggestion(e.target.value);
                         }
-                        setTimeout(() => setActiveDescPopup(null), 200);
                     }}
                     onKeyDown={(e) => {
                         if (e.key === 'Tab' && inlineSuggestion) {
@@ -707,30 +705,6 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                     autoComplete="off"
                 />
             </div>
-            {activeDescPopup === entry.id && suggestions.some(s => s.toLowerCase().includes(entry.description.toLowerCase()) && s.toLowerCase() !== entry.description.toLowerCase()) && (
-                <div 
-                    className="absolute top-full left-0 w-full bg-white border border-slate-200 shadow-xl z-50 max-h-40 overflow-y-auto rounded-b-lg text-left"
-                    onMouseDown={(e) => e.preventDefault()}
-                >
-                    {suggestions
-                        .filter(s => s.toLowerCase().includes(entry.description.toLowerCase()) && s.toLowerCase() !== entry.description.toLowerCase())
-                        .slice(0, 10)
-                        .map(s => (
-                            <div 
-                                key={s} 
-                                className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-xs text-slate-700 border-b border-slate-50 last:border-0 truncate"
-                                onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    handleEntryChange(entry.id, 'description', s);
-                                    setActiveDescPopup(null);
-                                }}
-                            >
-                                {s}
-                            </div>
-                        ))
-                    }
-                </div>
-            )}
           </div>
 
           {/* Total Time */}
