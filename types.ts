@@ -57,6 +57,8 @@ export interface AppSettings {
   showTimeColumn: boolean;
   enableSuggestions: boolean;
   customLogo?: string; // Base64 string
+  dateFormat: 'iso' | 'uk' | 'us';
+  reportTitle: string;
 }
 
 export const INITIAL_ENTRY: LogEntry = {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ShiftSection from './components/ShiftSection';
 import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings } from './types';
-import { Printer, Save, Trash2, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Menu, Calendar, Briefcase, Eye, Layout, Upload, Download } from 'lucide-react';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2 } from 'lucide-react';
 
 const INITIAL_ROWS = 5;
 const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
@@ -91,7 +91,9 @@ const App: React.FC = () => {
         showLineColumn: true,
         showTimeColumn: true,
         enableSuggestions: true,
-        customLogo: ''
+        customLogo: '',
+        dateFormat: 'iso',
+        reportTitle: 'Daily Maintenance Activity Report'
     };
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -360,22 +362,20 @@ const App: React.FC = () => {
     }));
   };
 
-  const handleSave = () => {
-    saveCurrentReport(report);
-    alert('Report saved to local storage!');
-  };
-
   const handlePrintRequest = () => {
     setPrintModalOpen(true);
   };
 
   const executePrint = (filter: 'all' | 'night' | 'morning' | 'evening') => {
       setPrintFilter(filter);
+      // Increased delay to 500ms to allow React state to settle and DOM to update
+      // especially for images and large layout shifts.
       setTimeout(() => {
           window.print();
+          // Reset after print dialog closes
           setPrintModalOpen(false);
           setPrintFilter('all');
-      }, 100);
+      }, 500);
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -393,13 +393,44 @@ const App: React.FC = () => {
   // --- Optimized CSV Export Logic ---
   const timeToMinutes = (timeStr: string): string => {
       if (!timeStr) return "0";
-      // Assumes format like "1h 30m" or "45m"
-      let minutes = 0;
-      const hMatch = timeStr.match(/(\d+)h/);
-      const mMatch = timeStr.match(/(\d+)m/);
-      if (hMatch) minutes += parseInt(hMatch[1]) * 60;
-      if (mMatch) minutes += parseInt(mMatch[1]);
-      return minutes.toString();
+      
+      let totalMinutes = 0;
+      // Split by '+' to handle intervals (e.g., "40m+60m")
+      const parts = timeStr.split('+');
+      
+      parts.forEach(part => {
+          const p = part.trim().toLowerCase();
+          if (!p) return;
+
+          let partVal = 0;
+          let matched = false;
+
+          // Check for hours
+          const hMatch = p.match(/(\d+)\s*h/);
+          if (hMatch) {
+              partVal += parseInt(hMatch[1], 10) * 60;
+              matched = true;
+          }
+          
+          // Check for minutes
+          const mMatch = p.match(/(\d+)\s*m/);
+          if (mMatch) {
+              partVal += parseInt(mMatch[1], 10);
+              matched = true;
+          }
+          
+          // Fallback for raw numbers without units (treat as minutes)
+          if (!matched) {
+              const rawNum = parseInt(p.replace(/[^0-9]/g, ''), 10);
+              if (!isNaN(rawNum)) {
+                  partVal += rawNum;
+              }
+          }
+
+          totalMinutes += partVal;
+      });
+      
+      return totalMinutes.toString();
   };
 
   const generateAIExport = (start: string, end: string) => {
@@ -540,6 +571,17 @@ const App: React.FC = () => {
 
   const suggestions = getSuggestions();
 
+  const getFormattedDate = (isoDate: string) => {
+      if (!isoDate) return '';
+      const d = new Date(isoDate);
+      if (settings.dateFormat === 'uk') {
+          return `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
+      } else if (settings.dateFormat === 'us') {
+          return `${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}/${d.getFullYear()}`;
+      }
+      return isoDate; // ISO default
+  }
+
   // --- LOGIN SCREEN ---
   if (!isAuthenticated) {
     return (
@@ -601,14 +643,14 @@ const App: React.FC = () => {
       {/* Settings Modal */}
       {settingsOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-2xl shadow-2xl w-96 p-6 max-h-[90vh] overflow-y-auto transform transition-all">
-             <div className="flex justify-between items-center mb-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-96 p-6 max-h-[90vh] overflow-y-auto transform transition-all flex flex-col">
+             <div className="flex justify-between items-center mb-6 flex-shrink-0">
                 <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800"><Sliders size={20}/> App Settings</h3>
                 <button onClick={() => setSettingsOpen(false)} className="text-slate-400 hover:text-slate-700 transition-colors"><X size={20}/></button>
              </div>
              
              {/* ... Settings Content ... */}
-             <div className="space-y-6">
+             <div className="space-y-6 flex-grow overflow-y-auto pr-2">
                  
                  {/* Branding */}
                  <div>
@@ -634,28 +676,35 @@ const App: React.FC = () => {
                    </div>
                  </div>
 
-                 {/* Advanced Data Export */}
-                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                     <label className="block text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
-                         <Download size={16}/> Advanced Data Export
-                     </label>
-                     <p className="text-xs text-blue-700 mb-3">Export optimized CSV for AI analysis over a date range.</p>
-                     <div className="flex gap-2 mb-2">
-                         <div className="flex-1">
-                             <label className="text-[10px] uppercase font-bold text-blue-500">Start</label>
-                             <input type="date" value={exportStart} onChange={e => setExportStart(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
-                         </div>
-                         <div className="flex-1">
-                             <label className="text-[10px] uppercase font-bold text-blue-500">End</label>
-                             <input type="date" value={exportEnd} onChange={e => setExportEnd(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
-                         </div>
-                     </div>
-                     <button 
-                         onClick={() => generateAIExport(exportStart, exportEnd)}
-                         className="w-full bg-blue-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                     >
-                         Download Data Range CSV
-                     </button>
+                 {/* Report Customization */}
+                 <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Report Customization</label>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs text-slate-500 mb-1 block">Report Title</label>
+                            <div className="relative">
+                                <Type size={14} className="absolute left-2.5 top-2.5 text-slate-400"/>
+                                <input 
+                                    className="w-full border border-slate-300 rounded-lg py-2 pl-8 pr-3 text-sm text-black focus:ring-2 focus:ring-blue-500 outline-none" 
+                                    value={settings.reportTitle}
+                                    onChange={e => setSettings({...settings, reportTitle: e.target.value})}
+                                    placeholder="Daily Maintenance Activity Report"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs text-slate-500 mb-1 block">Date Format</label>
+                            <select 
+                                className="w-full border border-slate-300 rounded-lg py-2 px-3 text-sm text-black focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                                value={settings.dateFormat}
+                                onChange={e => setSettings({...settings, dateFormat: e.target.value as any})}
+                            >
+                                <option value="iso">ISO (YYYY-MM-DD)</option>
+                                <option value="uk">UK/EU (DD/MM/YYYY)</option>
+                                <option value="us">US (MM/DD/YYYY)</option>
+                            </select>
+                        </div>
+                    </div>
                  </div>
 
                  <div>
@@ -734,9 +783,33 @@ const App: React.FC = () => {
                       </div>
                    </label>
                  </div>
+
+                 {/* Advanced Data Export (Moved to Bottom) */}
+                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mt-6">
+                     <label className="block text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
+                         <Download size={16}/> Advanced Data Export
+                     </label>
+                     <p className="text-xs text-blue-700 mb-3">Export optimized CSV for AI analysis over a date range.</p>
+                     <div className="flex gap-2 mb-2">
+                         <div className="flex-1">
+                             <label className="text-[10px] uppercase font-bold text-blue-500">Start</label>
+                             <input type="date" value={exportStart} onChange={e => setExportStart(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
+                         </div>
+                         <div className="flex-1">
+                             <label className="text-[10px] uppercase font-bold text-blue-500">End</label>
+                             <input type="date" value={exportEnd} onChange={e => setExportEnd(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
+                         </div>
+                     </div>
+                     <button 
+                         onClick={() => generateAIExport(exportStart, exportEnd)}
+                         className="w-full bg-blue-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                     >
+                         Download Data Range CSV
+                     </button>
+                 </div>
              </div>
              
-             <div className="flex justify-end pt-4 border-t mt-6">
+             <div className="flex justify-end pt-4 border-t mt-6 flex-shrink-0">
                 <button 
                   onClick={() => setSettingsOpen(false)}
                   className="bg-slate-800 text-white px-6 py-2 rounded-lg hover:bg-slate-700 font-medium transition-colors"
@@ -837,12 +910,9 @@ const App: React.FC = () => {
                 </button>
             </div>
             <div className="flex gap-2">
-                <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm">
-                    <Save size={14} /> SAVE
-                </button>
-                <button onClick={handleClear} className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-xs font-bold transition-all">
-                    <Trash2 size={14} /> CLEAR
-                </button>
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium border border-green-200 mr-2">
+                   <Check size={12} /> Auto-Saving On
+                </div>
                 <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-bold transition-all">
                     <FileSpreadsheet size={14} /> CSV
                 </button>
@@ -860,24 +930,28 @@ const App: React.FC = () => {
       {/* Main Report Card */}
       <div className="max-w-[1200px] mx-auto bg-white shadow-xl rounded-xl overflow-visible my-24 print:shadow-none print:w-full print:m-0 print:rounded-none border border-slate-200 print:border-none">
         
-        {/* Modern Header */}
-        <div className="bg-slate-900 text-white p-6 rounded-t-xl print:rounded-none print:p-4 print:bg-white print:text-black print:border-b-2 print:border-black">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+        {/* Modern Header (Optimized for Screen vs Print) */}
+        <div className="bg-slate-900 text-white p-6 rounded-t-xl print:rounded-none print:p-0 print:pt-4 print:pb-4 print:bg-white print:text-black print:border-b-2 print:border-black">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 print:items-center">
             <div className="flex items-center gap-4">
+               {/* Logo handling: White wrapper on screen, transparent/large on print */}
                {settings.customLogo && (
-                   <img src={settings.customLogo} alt="Company Logo" className="h-12 w-auto object-contain bg-white/10 rounded p-1" />
+                   <div className="h-14 w-auto bg-white/10 rounded p-1 print:bg-transparent print:h-20 print:p-0">
+                       <img src={settings.customLogo} alt="Company Logo" className="h-full w-auto object-contain" />
+                   </div>
                )}
                <div>
-                   <h1 className="text-2xl font-bold uppercase tracking-wider text-blue-400 print:text-black mb-1">Daily Maintenance Activity Report</h1>
+                   <h1 className="text-2xl font-bold uppercase tracking-wider text-blue-400 print:text-black mb-1 leading-tight">{settings.reportTitle}</h1>
+                   <div className="hidden print:block text-sm font-bold text-gray-500">SECTION: {currentSection}</div>
                </div>
             </div>
             
-            <div className="flex gap-6 w-full md:w-auto">
+            <div className="flex gap-6 w-full md:w-auto print:hidden">
                <div className="flex-1 md:flex-none">
-                  <label className="block text-[10px] font-bold text-slate-400 print:text-black uppercase tracking-widest mb-1">Section</label>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Section</label>
                   <div className="relative group">
                     <input 
-                        className="w-full md:w-64 bg-slate-800 print:bg-transparent border border-slate-700 print:border-black rounded px-3 py-1.5 text-sm font-medium text-white print:text-black focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder-slate-500"
+                        className="w-full md:w-64 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm font-medium text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder-slate-500"
                         value={currentSection}
                         onChange={(e) => setCurrentSection(e.target.value)}
                         list="sections-list"
@@ -888,7 +962,7 @@ const App: React.FC = () => {
                     </datalist>
                     <button 
                         onClick={() => setSectionManagerOpen(true)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white no-print"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
                         title="Manage Sections"
                     >
                         <Settings size={14}/>
@@ -896,17 +970,24 @@ const App: React.FC = () => {
                   </div>
                </div>
                <div className="flex-1 md:flex-none">
-                  <label className="block text-[10px] font-bold text-slate-400 print:text-black uppercase tracking-widest mb-1">Date</label>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Date</label>
                   <div className="relative">
                     <input 
                         type="date" 
-                        className="w-full md:w-auto bg-slate-800 print:bg-transparent border border-slate-700 print:border-black rounded px-3 py-1.5 text-sm font-medium text-white print:text-black focus:ring-2 focus:ring-blue-500 outline-none transition-all uppercase"
+                        className="w-full md:w-auto bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm font-medium text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all uppercase"
                         value={currentDate}
                         onChange={(e) => setCurrentDate(e.target.value)}
                     />
-                    <Calendar size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none no-print" />
+                    <Calendar size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                   </div>
                </div>
+            </div>
+
+            {/* Print Only Date Display */}
+            <div className="hidden print:block text-right">
+                <div className="text-xl font-bold text-black border border-black px-4 py-2 rounded">
+                    DATE: {getFormattedDate(currentDate)}
+                </div>
             </div>
           </div>
         </div>

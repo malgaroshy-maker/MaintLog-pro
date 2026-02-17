@@ -20,27 +20,55 @@
           size: landscape;
           margin: 0.5cm;
         }
+        
         .no-print {
           display: none !important;
         }
+
         body {
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-          background: white;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          background: white !important;
+          color: black !important;
+          width: 100%;
+          margin: 0;
+          padding: 0;
         }
-        input, textarea {
+
+        #root {
+          width: 100%;
+        }
+
+        /* Clean up inputs for print to look like static text */
+        input, textarea, select {
           border: none !important;
           background: transparent !important;
           resize: none !important;
           padding: 0 !important;
+          box-shadow: none !important;
+          appearance: none !important;
+          -webkit-appearance: none !important;
         }
-        /* Restore sharp borders for print */
+
+        /* Force high contrast borders for tables */
         .print-border-black {
           border-color: #000 !important;
+          border-width: 1px !important;
         }
-        /* Hide scrollbars in print */
+
+        /* Ensure grid lines are visible */
+        .border-b, .border-r, .border-l, .border-t, .border {
+          border-color: #000 !important;
+        }
+
+        /* Hide scrollbars */
         ::-webkit-scrollbar {
           display: none;
+        }
+
+        /* Logo Sizing */
+        img {
+            max-width: 100% !important;
         }
       }
     </style>
