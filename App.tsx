@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ShiftSection from './components/ShiftSection';
 import { AIChat } from './components/AIChat';
 import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings, LogEntry, UsedPart } from './types';
-import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key } from 'lucide-react';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key, Cpu } from 'lucide-react';
 
 const INITIAL_ROWS = 5;
 const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
@@ -82,7 +82,7 @@ const App: React.FC = () => {
   // Settings State
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('appSettings');
-    return saved ? JSON.parse(saved) : { 
+    const defaults = { 
         fontSize: 'medium', 
         theme: 'blue', 
         fontFamily: 'Inter', 
@@ -97,8 +97,10 @@ const App: React.FC = () => {
         reportTitle: 'Daily Maintenance Activity Report',
         hideEmptyRowsPrint: false,
         autoCapitalize: true,
-        geminiApiKey: ''
-    };
+        geminiApiKey: '',
+        aiModel: 'gemini-3-flash-preview'
+    } as AppSettings;
+    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -1101,7 +1103,8 @@ const App: React.FC = () => {
       <AIChat 
         isOpen={aiChatOpen} 
         onClose={() => setAiChatOpen(false)} 
-        apiKey={settings.geminiApiKey} 
+        apiKey={settings.geminiApiKey}
+        model={settings.aiModel}
         report={report}
         sparePartsDB={sparePartsDB}
         machines={machines}
@@ -1365,15 +1368,34 @@ const App: React.FC = () => {
                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Data Management</div>
 
                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-2"><Key size={16}/> Google Gemini API Key</h4>
-                        <p className="text-xs text-slate-500 mb-3">Enable AI features by providing your API key. Stored locally.</p>
-                        <input 
-                            type="password"
-                            placeholder="Enter AI API Key..."
-                            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                            value={settings.geminiApiKey || ''}
-                            onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})}
-                        />
+                        <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><Key size={16}/> AI Configuration</h4>
+                        
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">API Key</label>
+                            <input 
+                                type="password"
+                                placeholder="Enter Google Gemini API Key..."
+                                className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                value={settings.geminiApiKey || ''}
+                                onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-2"><Cpu size={12}/> Model Selection</label>
+                            <select 
+                                className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                value={settings.aiModel}
+                                onChange={(e) => setSettings({...settings, aiModel: e.target.value})}
+                            >
+                                <option value="gemini-3-flash-preview">Gemini 3 Flash (Recommended)</option>
+                                <option value="gemini-3-pro-preview">Gemini 3 Pro (High Intelligence)</option>
+                                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Stable)</option>
+                            </select>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                                Select "Pro" for complex reasoning or "Flash" for speed. If you encounter 429 Errors (Quota), switch models or check billing.
+                            </p>
+                        </div>
                    </div>
                    
                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">

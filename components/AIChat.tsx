@@ -7,6 +7,7 @@ interface AIChatProps {
   isOpen: boolean;
   onClose: () => void;
   apiKey?: string;
+  model: string;
   report: ReportData;
   sparePartsDB: SparePart[];
   machines: string[];
@@ -27,7 +28,7 @@ interface Attachment {
   base64Data: string; // Raw base64 for API
 }
 
-export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, report, sparePartsDB, machines, availableEngineers, onToolAction }) => {
+export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, report, sparePartsDB, machines, availableEngineers, onToolAction }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
     { role: 'model', content: 'Hello! I am your MaintLog Assistant. I can analyze your report, add detailed entries, manage spare parts, or assign engineers. How can I help?' }
@@ -275,7 +276,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, report,
 
         // Call generateContent
         const result = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: model || 'gemini-3-flash-preview',
             contents: [...chatHistory, { role: 'user', parts: currentUserContentParts }],
             config: {
                 systemInstruction: systemPrompt,
@@ -320,7 +321,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, report,
             }));
             
             const secondResponse = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
+                    model: model || 'gemini-3-flash-preview',
                     contents: [
                         ...chatHistory, 
                         { role: 'user', parts: currentUserContentParts },
@@ -470,7 +471,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, report,
              </button>
          </div>
          <div className="text-[10px] text-center text-slate-400 mt-2 flex items-center justify-center gap-1">
-             <Terminal size={10} /> Powered by Gemini 3 Flash
+             <Terminal size={10} /> Powered by {model || 'Gemini 3 Flash'}
          </div>
       </div>
     </div>

@@ -63,6 +63,7 @@ export interface AppSettings {
   hideEmptyRowsPrint: boolean;
   autoCapitalize: boolean;
   geminiApiKey?: string;
+  aiModel: string;
 }
 
 export const INITIAL_ENTRY: LogEntry = {
