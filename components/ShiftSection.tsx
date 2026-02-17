@@ -603,7 +603,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
             <div className="w-[10%] border-r border-white/20 flex items-center justify-center">LINE</div>
         )}
         <div 
-            className="border-r border-white/20 flex items-center pl-2 text-left"
+            className="border-r border-white/20 flex items-center justify-center text-center"
             style={{ width: `${descWidth}%` }}
         >
             WORK DESCRIPTION
@@ -674,37 +674,40 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
               </div>
           )}
 
-          {/* Description */}
+          {/* Description - Auto Expanding Sizer Strategy */}
           <div className="border-r border-slate-200 print:border-black relative" style={{ width: `${descWidth}%` }}>
-            <div className="relative w-full h-full">
-                {/* Ghost Overlay */}
-                {suggestionsEnabled && (
-                  <div className="absolute inset-0 px-2 py-1.5 text-left pointer-events-none whitespace-pre-wrap overflow-hidden font-inter z-0">
-                      <span className="opacity-0">{entry.description}</span>
-                      <span className="text-gray-400 opacity-50">{suggestionSuffix}</span>
-                  </div>
-                )}
-                
-                <textarea 
-                    className="w-full h-full px-2 outline-none bg-transparent text-black resize-none py-1.5 focus:bg-blue-50/50 transition-colors text-left font-inter relative z-10"
-                    rows={1}
-                    value={entry.description}
-                    onChange={(e) => handleEntryChange(entry.id, 'description', e.target.value)}
-                    onBlur={(e) => {
-                        if (onLearnSuggestion) {
-                            onLearnSuggestion(e.target.value);
-                        }
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Tab' && inlineSuggestion) {
-                            e.preventDefault();
-                            handleEntryChange(entry.id, 'description', inlineSuggestion);
-                        }
-                    }}
-                    spellCheck={appSettings?.enableSpellCheck}
-                    autoComplete="off"
-                />
+            {/* Sizer Div - Controls Height */}
+            <div className="invisible px-2 py-1.5 whitespace-pre-wrap break-words font-inter text-center min-h-full">
+                {entry.description || '.'}
             </div>
+
+            {/* Actual Input */}
+            <textarea 
+                className="absolute inset-0 w-full h-full px-2 py-1.5 outline-none bg-transparent text-black resize-none focus:bg-blue-50/50 transition-colors text-center font-inter overflow-hidden"
+                value={entry.description}
+                onChange={(e) => handleEntryChange(entry.id, 'description', e.target.value)}
+                onBlur={(e) => {
+                    if (onLearnSuggestion) {
+                        onLearnSuggestion(e.target.value);
+                    }
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Tab' && inlineSuggestion) {
+                        e.preventDefault();
+                        handleEntryChange(entry.id, 'description', inlineSuggestion);
+                    }
+                }}
+                spellCheck={appSettings?.enableSpellCheck}
+                autoComplete="off"
+            />
+            
+            {/* Ghost Overlay */}
+            {suggestionsEnabled && entry.description && (
+                <div className="absolute inset-0 px-2 py-1.5 pointer-events-none text-center whitespace-pre-wrap break-words font-inter">
+                    <span className="opacity-0">{entry.description}</span>
+                    <span className="text-gray-400 opacity-50">{suggestionSuffix}</span>
+                </div>
+            )}
           </div>
 
           {/* Total Time */}
@@ -794,28 +797,42 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
               </div>
           )}
 
-          {/* Spare Parts (Swapped) */}
+          {/* Spare Parts (Swapped) - Auto Expanding */}
           <div 
-             className="w-[12%] border-r border-slate-200 print:border-black p-1.5 cursor-pointer hover:bg-blue-50/50 transition-colors relative flex items-center justify-center"
+             className="w-[12%] border-r border-slate-200 print:border-black relative flex flex-col justify-center cursor-pointer hover:bg-blue-50/50 transition-colors"
              onClick={() => openSparePartsModal(entry)}
           >
-             <div className="whitespace-pre-wrap text-black w-full pointer-events-none text-sm text-center">
+             {/* Sizer */}
+             <div className="invisible px-1 py-1.5 whitespace-pre-wrap break-words text-center text-sm min-h-full">
+                 {entry.spareParts || '.'}
+             </div>
+             {/* Content */}
+             <div className="absolute inset-0 w-full h-full flex items-center justify-center p-1.5 text-center text-sm whitespace-pre-wrap text-black pointer-events-none">
                  {entry.spareParts || <span className="opacity-0">.</span>}
              </div>
           </div>
 
-          {/* Quantity (Swapped) */}
-          <div className="w-[8%] border-r border-slate-200 print:border-black p-1.5 pointer-events-none">
-             <div className="whitespace-pre-wrap text-center text-black h-full w-full text-sm">
+          {/* Quantity (Swapped) - Auto Expanding */}
+          <div className="w-[8%] border-r border-slate-200 print:border-black relative flex flex-col justify-center pointer-events-none">
+             {/* Sizer */}
+             <div className="invisible px-1 py-1.5 whitespace-pre-wrap break-words text-center text-sm min-h-full">
+                 {entry.quantity || '.'}
+             </div>
+             {/* Content */}
+             <div className="absolute inset-0 w-full h-full flex items-center justify-center p-1.5 text-center text-sm whitespace-pre-wrap text-black">
                  {entry.quantity || <span className="opacity-0">.</span>}
              </div>
           </div>
 
-          {/* Notes */}
+          {/* Notes - Auto Expanding */}
           <div className="w-[10%] relative">
+             {/* Sizer */}
+             <div className="invisible px-2 py-1.5 whitespace-pre-wrap break-words text-center min-h-full">
+                 {entry.notes || '.'}
+             </div>
+
              <textarea 
-                className="w-full h-full px-2 outline-none bg-transparent text-black resize-none py-1.5 focus:bg-blue-50/50 transition-colors text-center"
-                rows={1}
+                className="absolute inset-0 w-full h-full px-2 py-1.5 outline-none bg-transparent text-black resize-none focus:bg-blue-50/50 transition-colors text-center overflow-hidden"
                 value={entry.notes}
                 onChange={(e) => handleEntryChange(entry.id, 'notes', e.target.value)}
                 spellCheck={appSettings?.enableSpellCheck}

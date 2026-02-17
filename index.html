@@ -48,6 +48,13 @@
           box-shadow: none !important;
           appearance: none !important;
           -webkit-appearance: none !important;
+          /* Ensure text wrap for print */
+          white-space: pre-wrap !important;
+          overflow: hidden !important;
+        }
+
+        input::placeholder, textarea::placeholder {
+            color: transparent !important;
         }
 
         /* Force high contrast borders for tables */
