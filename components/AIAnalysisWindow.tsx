@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Sparkles, Bot, User, Loader2, BarChart3, Table as TableIcon, FileText, PieChart, LineChart, RefreshCw, Download } from 'lucide-react';
+import { X, Send, Sparkles, Bot, User, Loader2, BarChart3, Table as TableIcon, FileText, PieChart, LineChart, RefreshCw, Download, Image as ImageIcon } from 'lucide-react';
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 import { ReportData } from '../types';
 
@@ -18,12 +18,13 @@ interface AnalysisMessage {
   content: string;
   chartData?: any; // JSON object for charts
   tableData?: any; // JSON object for tables
+  imageData?: string; // Base64 string for generated images
 }
 
 export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onClose, apiKey, model, sections, currentDate, currentSection }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<AnalysisMessage[]>([
-    { role: 'model', content: 'I am your Data Analyst. I can scan your logs, generate charts, and summarize performance. Ask me something like "Analyze downtime for last month" or "Show me a chart of machine interventions".' }
+    { role: 'model', content: 'I am your Data Analyst. I can scan your logs, generate charts, and summarize performance. You can also ask me to "generate an image" to visualize maintenance scenarios.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -140,6 +141,19 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               }
           };
 
+          // Tool: Generate Image
+          const generateImageTool: FunctionDeclaration = {
+              name: "generate_image",
+              description: "Generates an AI image based on a detailed text description. Use this when the user asks to create, draw, or generate an image/visualization (that is NOT a chart).",
+              parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                      prompt: { type: Type.STRING, description: "Detailed visual description of the image to generate." }
+                  },
+                  required: ["prompt"]
+              }
+          };
+
           const systemPrompt = `You are an expert Industrial Data Analyst for MaintLog Pro.
           
           SYSTEM CONTEXT:
@@ -149,9 +163,14 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
           Capabilities:
           1. Retrieve data using 'get_maintenance_data'.
           2. Analyze the data to answer user queries.
-          3. GENERATE VISUALIZATIONS.
+          3. GENERATE CHARTS/TABLES (Output JSON).
+          4. GENERATE IMAGES (Call 'generate_image').
 
-          RESPONSE FORMAT:
+          RULES FOR IMAGE GENERATION:
+          - If the user asks to "generate an image", "draw", or "visualize" something artistically (e.g., "draw the broken gear", "show me a concept of improved safety"), use the 'generate_image' tool.
+          - Construct a detailed, industrial-style prompt for the image generator based on the context of the maintenance logs if applicable.
+
+          RESPONSE FORMAT FOR CHARTS (NOT IMAGES):
           If the user asks for a chart, graph, or table, you MUST output a standard JSON block at the end of your text response.
           
           The JSON must follow this EXACT schema:
@@ -186,7 +205,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               contents: [...chatHistory, { role: 'user', parts: [{ text: userMsg }] }],
               config: {
                   systemInstruction: systemPrompt,
-                  tools: [{ functionDeclarations: [getDataTool] }]
+                  tools: [{ functionDeclarations: [getDataTool, generateImageTool] }]
               }
           });
 
@@ -195,9 +214,10 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
           let finalResponseText = "";
           let chartData = null;
           let tableData = null;
+          let generatedImage: string | undefined = undefined;
 
           if (functionCalls && functionCalls.length > 0) {
-              const toolResults = functionCalls.map(call => {
+              const toolResults = await Promise.all(functionCalls.map(async (call) => {
                   if (call.name === 'get_maintenance_data') {
                       // Apply defaults from context if arguments are missing, but let getAllData handle wide ranges if dates are omitted
                       const start = call.args.startDate;
@@ -216,8 +236,48 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                           }
                       };
                   }
+                  
+                  if (call.name === 'generate_image') {
+                      try {
+                          const prompt = call.args.prompt as string;
+                          const imgResponse = await ai.models.generateContent({
+                                model: 'gemini-2.5-flash-image',
+                                contents: { parts: [{ text: prompt }] },
+                                config: {
+                                    imageConfig: {
+                                        aspectRatio: "4:3"
+                                    }
+                                }
+                          });
+                          
+                          // Extract image data
+                          if (imgResponse.candidates && imgResponse.candidates.length > 0) {
+                              for (const part of imgResponse.candidates[0].content.parts) {
+                                  if (part.inlineData) {
+                                      generatedImage = part.inlineData.data;
+                                      break;
+                                  }
+                              }
+                          }
+                          
+                          return {
+                              functionResponse: {
+                                  name: call.name,
+                                  response: { result: generatedImage ? "Image generated successfully." : "Failed to generate image." }
+                              }
+                          };
+                      } catch (e: any) {
+                          return {
+                              functionResponse: {
+                                  name: call.name,
+                                  response: { result: "Error generating image: " + e.message }
+                              }
+                          };
+                      }
+                  }
+
                   return { functionResponse: { name: call.name, response: { result: "Unknown tool" } } };
-              });
+              }));
 
               const secondResponse = await ai.models.generateContent({
                   model: model || 'gemini-3-flash-preview',
@@ -235,7 +295,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               finalResponseText = result.text || "";
           }
 
-          // Robust JSON Parsing
+          // Robust JSON Parsing for Charts
           // Look for code block with json or just braces
           const jsonMatch = finalResponseText.match(/```json\s*([\s\S]*?)\s*```/i) || finalResponseText.match(/```\s*([\s\S]*?)\s*```/i);
           
@@ -260,7 +320,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
           }
 
           // If text is empty after stripping JSON, add a placeholder so the bubble isn't empty
-          if (!finalResponseText && (chartData || tableData)) {
+          if (!finalResponseText && (chartData || tableData || generatedImage)) {
               finalResponseText = "Here is the visualization based on your request.";
           }
 
@@ -268,7 +328,8 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               role: 'model', 
               content: finalResponseText,
               chartData,
-              tableData
+              tableData,
+              imageData: generatedImage
           }]);
 
       } catch (error: any) {
@@ -442,7 +503,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                             {/* Render latest chart/table from the last AI message that has one */}
                             {(() => {
                                 // Find last message with data
-                                const lastDataMsg = [...messages].reverse().find(m => m.chartData || m.tableData);
+                                const lastDataMsg = [...messages].reverse().find(m => m.chartData || m.tableData || m.imageData);
                                 if (!lastDataMsg) return (
                                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 mt-20">
                                         <Bot size={48} className="mb-4 opacity-20" />
@@ -456,7 +517,20 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                                         {lastDataMsg.chartData?.type === 'pie' && <PieChartComp data={lastDataMsg.chartData} />}
                                         {lastDataMsg.tableData && <DataTable data={lastDataMsg.tableData} />}
                                         
-                                        {!lastDataMsg.chartData && !lastDataMsg.tableData && (
+                                        {lastDataMsg.imageData && (
+                                            <div className="flex flex-col items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                                <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
+                                                    <ImageIcon size={16} className="text-indigo-600"/> AI Generated Visualization
+                                                </h4>
+                                                <img 
+                                                    src={`data:image/png;base64,${lastDataMsg.imageData}`} 
+                                                    alt="AI Generated" 
+                                                    className="rounded-lg shadow-inner max-h-[500px] w-auto border border-slate-100" 
+                                                />
+                                            </div>
+                                        )}
+
+                                        {!lastDataMsg.chartData && !lastDataMsg.tableData && !lastDataMsg.imageData && (
                                             <div className="bg-white p-6 rounded-lg border border-slate-200 text-center text-slate-500 mt-10">
                                                 <FileText className="mx-auto mb-2 opacity-50" size={32} />
                                                 Check the chat for analysis.
@@ -479,8 +553,8 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                                 <button onClick={() => { setInput("Show a chart of the top 5 machines by interventions"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
                                     📊 Top Machines Chart
                                 </button>
-                                <button onClick={() => { setInput("Table of all spare parts used recently"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
-                                    📋 Spare Parts Table
+                                <button onClick={() => { setInput("Generate an image of a futuristic factory line"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
+                                    🎨 Generate Image
                                 </button>
                             </div>
                         </div>
