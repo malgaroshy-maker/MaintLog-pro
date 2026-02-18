@@ -9,6 +9,8 @@ interface AIAnalysisWindowProps {
   apiKey?: string;
   model: string;
   sections: string[];
+  currentDate: string;
+  currentSection: string;
 }
 
 interface AnalysisMessage {
@@ -18,7 +20,7 @@ interface AnalysisMessage {
   tableData?: any; // JSON object for tables
 }
 
-export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onClose, apiKey, model, sections }) => {
+export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onClose, apiKey, model, sections, currentDate, currentSection }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<AnalysisMessage[]>([
     { role: 'model', content: 'I am your Data Analyst. I can scan your logs, generate charts, and summarize performance. Ask me something like "Analyze downtime for last month" or "Show me a chart of machine interventions".' }
@@ -35,10 +37,39 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
   if (!isOpen) return null;
 
   // --- Helpers for Data Retrieval ---
+  
+  const parseDuration = (str: string): number => {
+      if (!str) return 0;
+      let total = 0;
+      // Handle cases like "1h 30m" or "90m" or "1h+30m"
+      const parts = str.toLowerCase().split(/[+\s]+/); 
+      parts.forEach(p => {
+         if (!p) return;
+         let mins = 0;
+         const h = p.match(/(\d+)h/);
+         const m = p.match(/(\d+)m/);
+         if(h) mins += parseInt(h[1]) * 60;
+         if(m) mins += parseInt(m[1]);
+         // Fallback for just numbers
+         if(!h && !m) {
+             const val = parseInt(p.replace(/[^0-9]/g, ''));
+             if(!isNaN(val)) mins += val;
+         }
+         total += mins;
+      });
+      return total;
+  };
+
   const getAllData = (startDate?: string, endDate?: string, section?: string) => {
       const allData: any[] = [];
       
-      // Use direct string comparison for YYYY-MM-DD dates to avoid Timezone issues
+      // Defaults:
+      // Start: Beginning of time if not specified
+      // End: Far future if not specified (Allows looking at "future" logs relative to system time)
+      const effectiveStart = startDate || "1970-01-01";
+      const effectiveEnd = endDate || "2099-12-31";
+
+      // Use direct string comparison for YYYY-MM-DD dates
       for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith('maintlog_report_')) {
@@ -46,8 +77,8 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                   const report: ReportData = JSON.parse(localStorage.getItem(key)!);
                   
                   // Filter by Date Strings
-                  if (startDate && report.date < startDate) continue;
-                  if (endDate && report.date > endDate) continue;
+                  if (report.date < effectiveStart) continue;
+                  if (report.date > effectiveEnd) continue;
 
                   // Filter by Section
                   if (section && report.section !== section) continue;
@@ -64,7 +95,8 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                                   machine: entry.machine,
                                   line: entry.line,
                                   description: entry.description,
-                                  totalTime: entry.totalTime,
+                                  totalTimeStr: entry.totalTime,
+                                  durationMinutes: parseDuration(entry.totalTime), // Pre-calculated for AI
                                   spareParts: entry.spareParts,
                                   qty: entry.quantity,
                                   engineers: shift.engineers
@@ -101,39 +133,47 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               parameters: {
                   type: Type.OBJECT,
                   properties: {
-                      startDate: { type: Type.STRING, description: "Start date (YYYY-MM-DD). If user says 'today', use today's date." },
+                      startDate: { type: Type.STRING, description: "Start date (YYYY-MM-DD). If user says 'today', use the 'Current App Date'." },
                       endDate: { type: Type.STRING, description: "End date (YYYY-MM-DD)." },
-                      section: { type: Type.STRING, description: "Optional section name to filter by." }
+                      section: { type: Type.STRING, description: "Optional section name to filter by. Defaults to 'Current App Section' if not specified." }
                   }
               }
           };
 
           const systemPrompt = `You are an expert Industrial Data Analyst for MaintLog Pro.
           
+          SYSTEM CONTEXT:
+          - Current App Date: ${currentDate} (If user asks for "today", use this date).
+          - Current App Section: ${currentSection}
+          
           Capabilities:
           1. Retrieve data using 'get_maintenance_data'.
           2. Analyze the data to answer user queries.
-          3. GENERATE VISUALIZATIONS by outputting specific JSON blocks.
+          3. GENERATE VISUALIZATIONS.
 
-          Visualization Rules:
-          - To show a BAR CHART, output a JSON block strictly like:
-            \`\`\`json:bar-chart
-            { "title": "Top Machines", "labels": ["M1", "M2"], "values": [10, 5], "color": "#3b82f6" }
-            \`\`\`
-          - To show a PIE CHART, output a JSON block strictly like:
-            \`\`\`json:pie-chart
-            { "title": "Shift Distribution", "data": [{ "name": "Night", "value": 30, "color": "#475569" }, { "name": "Morning", "value": 50, "color": "#eab308" }] }
-            \`\`\`
-          - To show a DATA TABLE, output a JSON block strictly like:
-            \`\`\`json:table
-            { "headers": ["Date", "Machine", "Issue"], "rows": [["2024-01-01", "CFA", "Jam"], ["2024-01-02", "TP", "Sensor"]] }
-            \`\`\`
+          RESPONSE FORMAT:
+          If the user asks for a chart, graph, or table, you MUST output a standard JSON block at the end of your text response.
+          
+          The JSON must follow this EXACT schema:
+          \`\`\`json
+          {
+            "visualization": {
+              "type": "bar" | "pie" | "table",
+              "title": "Chart Title",
+              "data": { ... }
+            }
+          }
+          \`\`\`
+
+          Data Structures for "data":
+          - For "bar": { "labels": ["Label A", "Label B"], "values": [10, 5], "color": "#3b82f6" }
+          - For "pie": { "segments": [{ "name": "A", "value": 30, "color": "#475569" }, { "name": "B", "value": 50, "color": "#eab308" }] }
+          - For "table": { "headers": ["Date", "Machine", "Desc"], "rows": [["2024-01-01", "CFA", "Jam"], ["2024-01-02", "TP", "Sensor"]] }
           
           General Rules:
-          - If the tool returns empty data, tell the user no records were found for that period.
-          - If the data set is huge, summarize it or limit the rows in the table.
-          - Always parse the "totalTime" (e.g., "30m", "1h") into minutes for calculations.
-          - Be concise in your text response.
+          - If the tool returns empty data, tell the user no records were found.
+          - Use the 'durationMinutes' field in the data for time calculations (downtime).
+          - Keep text explanations concise.
           `;
 
           const chatHistory = messages.map(m => ({
@@ -159,8 +199,14 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
           if (functionCalls && functionCalls.length > 0) {
               const toolResults = functionCalls.map(call => {
                   if (call.name === 'get_maintenance_data') {
-                      const data = getAllData(call.args.startDate, call.args.endDate, call.args.section);
+                      // Apply defaults from context if arguments are missing, but let getAllData handle wide ranges if dates are omitted
+                      const start = call.args.startDate;
+                      const end = call.args.endDate;
+                      const sec = call.args.section || currentSection; // Default to current section if not specified
+                      
+                      const data = getAllData(start, end, sec);
                       const jsonResult = JSON.stringify(data);
+                      
                       // Limit context if too large
                       const truncatedResult = jsonResult.length > 20000 ? jsonResult.substring(0, 20000) + "...(truncated)" : jsonResult;
                       return {
@@ -189,28 +235,38 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               finalResponseText = result.text || "";
           }
 
-          // Parse for Visualization Blocks (Case insensitive, flexible spaces)
-          const barMatch = finalResponseText.match(/```json:?bar-chart\s*([\s\S]*?)\s*```/i);
-          if (barMatch) {
-              try { chartData = { type: 'bar', ...JSON.parse(barMatch[1]) }; } catch(e) {}
-              finalResponseText = finalResponseText.replace(barMatch[0], ''); // Remove JSON from text
+          // Robust JSON Parsing
+          // Look for code block with json or just braces
+          const jsonMatch = finalResponseText.match(/```json\s*([\s\S]*?)\s*```/i) || finalResponseText.match(/```\s*([\s\S]*?)\s*```/i);
+          
+          if (jsonMatch) {
+              try {
+                  const parsed = JSON.parse(jsonMatch[1]);
+                  if (parsed.visualization) {
+                      const viz = parsed.visualization;
+                      if (viz.type === 'bar') {
+                          chartData = { type: 'bar', ...viz };
+                      } else if (viz.type === 'pie') {
+                          chartData = { type: 'pie', title: viz.title, data: viz.data.segments };
+                      } else if (viz.type === 'table') {
+                          tableData = viz.data;
+                      }
+                      // Clean up the text to remove the raw JSON
+                      finalResponseText = finalResponseText.replace(jsonMatch[0], '').trim();
+                  }
+              } catch (e) {
+                  console.error("Failed to parse AI JSON visualization", e);
+              }
           }
 
-          const pieMatch = finalResponseText.match(/```json:?pie-chart\s*([\s\S]*?)\s*```/i);
-          if (pieMatch) {
-              try { chartData = { type: 'pie', ...JSON.parse(pieMatch[1]) }; } catch(e) {}
-              finalResponseText = finalResponseText.replace(pieMatch[0], '');
-          }
-
-          const tableMatch = finalResponseText.match(/```json:?table\s*([\s\S]*?)\s*```/i);
-          if (tableMatch) {
-              try { tableData = JSON.parse(tableMatch[1]); } catch(e) {}
-              finalResponseText = finalResponseText.replace(tableMatch[0], '');
+          // If text is empty after stripping JSON, add a placeholder so the bubble isn't empty
+          if (!finalResponseText && (chartData || tableData)) {
+              finalResponseText = "Here is the visualization based on your request.";
           }
 
           setMessages(prev => [...prev, { 
               role: 'model', 
-              content: finalResponseText.trim(),
+              content: finalResponseText,
               chartData,
               tableData
           }]);
@@ -224,33 +280,38 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
 
   // --- Simple Visualization Components ---
   const BarChart = ({ data }: { data: any }) => {
-      if (!data || !data.values || data.values.length === 0) return null;
-      const max = Math.max(...data.values);
+      if (!data || !data.data || !data.data.values || data.data.values.length === 0) return <div className="text-center text-gray-400 p-4">No data for chart</div>;
+      const values = data.data.values;
+      const labels = data.data.labels;
+      const max = Math.max(...values, 1); // Avoid div by zero
+      
       return (
-          <div className="bg-white p-4 rounded-lg border border-slate-200 mt-4 shadow-sm">
+          <div className="bg-white p-4 rounded-lg border border-slate-200 mt-4 shadow-sm w-full">
               <h4 className="font-bold text-slate-700 mb-4 text-center">{data.title}</h4>
-              <div className="flex items-end gap-2 h-40">
-                  {data.values.map((val: number, idx: number) => (
+              <div className="flex items-end gap-2 h-60 w-full px-2">
+                  {values.map((val: number, idx: number) => (
                       <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full group relative">
                           <div className="text-[10px] text-slate-500 mb-1 opacity-0 group-hover:opacity-100 absolute -top-4">{val}</div>
                           <div 
-                              className="w-full rounded-t hover:opacity-80 transition-all"
-                              style={{ height: `${(val / max) * 100}%`, backgroundColor: data.color || '#3b82f6' }}
+                              className="w-full rounded-t hover:opacity-80 transition-all min-w-[20px]"
+                              style={{ height: `${(val / max) * 100}%`, backgroundColor: data.data.color || '#3b82f6' }}
                           ></div>
-                          <div className="text-[10px] text-slate-400 mt-1 truncate w-full text-center" title={data.labels[idx]}>{data.labels[idx]}</div>
+                          <div className="text-[10px] text-slate-400 mt-2 rotate-45 origin-left whitespace-nowrap overflow-visible" title={labels[idx]}>{labels[idx]}</div>
                       </div>
                   ))}
               </div>
+              <div className="h-8"></div> {/* Spacer for rotated labels */}
           </div>
       );
   };
 
   const PieChartComp = ({ data }: { data: any }) => {
       if (!data || !data.data) return null;
-      // Simple CSS Conic Gradient approximation for Pie Chart
-      const total = data.data.reduce((acc: number, item: any) => acc + item.value, 0);
+      // data.data is the array of segments due to parsing logic above
+      const segments = data.data; 
+      const total = segments.reduce((acc: number, item: any) => acc + item.value, 0);
       let currentDeg = 0;
-      const gradientParts = data.data.map((item: any) => {
+      const gradientParts = segments.map((item: any) => {
           const deg = (item.value / total) * 360;
           const str = `${item.color || '#ccc'} ${currentDeg}deg ${currentDeg + deg}deg`;
           currentDeg += deg;
@@ -258,24 +319,24 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
       }).join(', ');
 
       return (
-          <div className="bg-white p-4 rounded-lg border border-slate-200 mt-4 shadow-sm flex items-center gap-6">
-              <div 
-                  className="w-32 h-32 rounded-full flex-shrink-0"
-                  style={{ background: `conic-gradient(${gradientParts})` }}
-              ></div>
-              <div className="flex-1">
-                  <h4 className="font-bold text-slate-700 mb-2">{data.title}</h4>
-                  <div className="space-y-1">
-                      {data.data.map((item: any, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-2">
-                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                                  <span className="text-slate-600">{item.name}</span>
-                              </div>
-                              <span className="font-bold">{item.value} ({Math.round(item.value/total*100)}%)</span>
-                          </div>
-                      ))}
-                  </div>
+          <div className="bg-white p-6 rounded-lg border border-slate-200 mt-4 shadow-sm flex flex-col items-center">
+              <h4 className="font-bold text-slate-700 mb-6">{data.title}</h4>
+              <div className="flex items-center gap-8">
+                <div 
+                    className="w-40 h-40 rounded-full flex-shrink-0 shadow-inner"
+                    style={{ background: `conic-gradient(${gradientParts})` }}
+                ></div>
+                <div className="space-y-2">
+                    {segments.map((item: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between text-xs min-w-[150px]">
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: item.color }}></div>
+                                <span className="text-slate-600 font-medium">{item.name}</span>
+                            </div>
+                            <span className="font-bold text-slate-800">{item.value} ({Math.round(item.value/total*100)}%)</span>
+                        </div>
+                    ))}
+                </div>
               </div>
           </div>
       );
@@ -289,13 +350,13 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                   <table className="w-full text-xs text-left">
                       <thead className="bg-slate-50 text-slate-500 uppercase font-bold border-b border-slate-200">
                           <tr>
-                              {data.headers.map((h: string, i: number) => <th key={i} className="px-3 py-2 whitespace-nowrap">{h}</th>)}
+                              {data.headers.map((h: string, i: number) => <th key={i} className="px-4 py-3 whitespace-nowrap">{h}</th>)}
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                           {data.rows.map((row: any[], i: number) => (
                               <tr key={i} className="hover:bg-slate-50">
-                                  {row.map((cell: any, j: number) => <td key={j} className="px-3 py-2 whitespace-nowrap text-slate-700">{cell}</td>)}
+                                  {row.map((cell: any, j: number) => <td key={j} className="px-4 py-2.5 whitespace-nowrap text-slate-700">{cell}</td>)}
                               </tr>
                           ))}
                       </tbody>
@@ -346,8 +407,8 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                 <div className="p-3 border-t border-slate-100">
                     <div className="relative">
                         <input 
-                            className="w-full bg-slate-100 border-transparent focus:bg-white border focus:border-indigo-300 rounded-lg px-3 py-2.5 text-xs outline-none pr-10 text-slate-900" 
-                            placeholder="Ask for analysis (e.g., 'Chart downtime by machine last week')"
+                            className="w-full bg-slate-100 border-transparent focus:bg-white border focus:border-indigo-300 rounded-lg px-3 py-2.5 text-xs outline-none pr-10 text-black placeholder-slate-400" 
+                            placeholder="Ask for analysis (e.g., 'Chart downtime by machine')"
                             value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && handleSend()}
@@ -375,30 +436,30 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 relative">
+                <div className="flex-1 overflow-y-auto p-6 relative flex flex-col">
                     {messages.length > 1 ? (
-                        <div className="space-y-6">
+                        <div className="space-y-6 w-full max-w-4xl mx-auto">
                             {/* Render latest chart/table from the last AI message that has one */}
                             {(() => {
                                 // Find last message with data
                                 const lastDataMsg = [...messages].reverse().find(m => m.chartData || m.tableData);
                                 if (!lastDataMsg) return (
-                                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                                        <Bot size={48} className="mb-2 opacity-20" />
+                                    <div className="flex flex-col items-center justify-center h-64 text-slate-400 mt-20">
+                                        <Bot size={48} className="mb-4 opacity-20" />
                                         <p>No visualization generated yet.</p>
                                     </div>
                                 );
 
                                 return (
-                                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 w-full">
                                         {lastDataMsg.chartData?.type === 'bar' && <BarChart data={lastDataMsg.chartData} />}
                                         {lastDataMsg.chartData?.type === 'pie' && <PieChartComp data={lastDataMsg.chartData} />}
                                         {lastDataMsg.tableData && <DataTable data={lastDataMsg.tableData} />}
                                         
                                         {!lastDataMsg.chartData && !lastDataMsg.tableData && (
-                                            <div className="bg-white p-6 rounded-lg border border-slate-200 text-center text-slate-500">
+                                            <div className="bg-white p-6 rounded-lg border border-slate-200 text-center text-slate-500 mt-10">
                                                 <FileText className="mx-auto mb-2 opacity-50" size={32} />
-                                                See chat for textual analysis.
+                                                Check the chat for analysis.
                                             </div>
                                         )}
                                     </div>
@@ -406,17 +467,20 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                             })()}
                         </div>
                     ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
-                            <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mb-2">
-                                <LineChart size={32} className="text-indigo-200" />
+                        <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-6">
+                            <div className="w-20 h-20 bg-white rounded-3xl shadow-sm flex items-center justify-center mb-2">
+                                <LineChart size={40} className="text-indigo-200" />
                             </div>
-                            <p className="text-sm">Ask the AI to generate charts or tables based on your logs.</p>
-                            <div className="flex gap-2">
-                                <button onClick={() => { setInput("Show a chart of the top 5 machines by interventions last month"); handleSend(); }} className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600">
-                                    Top 5 Machines Chart
+                            <div className="text-center">
+                                <h4 className="font-bold text-slate-600 mb-1">Ready to Analyze</h4>
+                                <p className="text-sm text-slate-400 max-w-xs mx-auto">Ask the AI to generate charts, tables, or summaries based on your maintenance logs.</p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={() => { setInput("Show a chart of the top 5 machines by interventions"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
+                                    📊 Top Machines Chart
                                 </button>
-                                <button onClick={() => { setInput("Table of all spare parts used yesterday"); handleSend(); }} className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600">
-                                    Spare Parts Table
+                                <button onClick={() => { setInput("Table of all spare parts used recently"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
+                                    📋 Spare Parts Table
                                 </button>
                             </div>
                         </div>

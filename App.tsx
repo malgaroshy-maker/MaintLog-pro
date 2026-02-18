@@ -1221,6 +1221,8 @@ const App: React.FC = () => {
         apiKey={settings.geminiApiKey}
         model={settings.aiModel}
         sections={sections}
+        currentDate={currentDate}
+        currentSection={currentSection}
       />
 
       {/* Analytics Modal */}
