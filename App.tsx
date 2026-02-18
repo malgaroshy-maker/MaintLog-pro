@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ShiftSection from './components/ShiftSection';
 import { AIChat } from './components/AIChat';
+import { AIAnalysisWindow } from './components/AIAnalysisWindow';
 import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings, LogEntry, UsedPart } from './types';
-import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key, Cpu } from 'lucide-react';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key, Cpu, LineChart } from 'lucide-react';
 
 const INITIAL_ROWS = 5;
 const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
@@ -150,6 +151,7 @@ const App: React.FC = () => {
 
   // Analytics & History State
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analysisWindowOpen, setAnalysisWindowOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<{topMachines: {name: string, count: number}[], downtime: {date: string, minutes: number}[], totalInterventions: number}>({ topMachines: [], downtime: [], totalInterventions: 0});
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyTargetMachine, setHistoryTargetMachine] = useState('');
@@ -1030,6 +1032,106 @@ const App: React.FC = () => {
                   return `Error updating background report: ${e.message}`;
               }
           }
+      } else if (toolName === 'edit_log_entry') {
+          const { id, used_parts, ...updates } = args;
+          
+          // Helper to process parts if present
+          let processedPartsUpdate = {};
+          if (used_parts && Array.isArray(used_parts)) {
+               const usedPartsData = used_parts.map((up: any) => {
+                    const dbPart = sparePartsDB.find(p => p.name.toLowerCase() === up.name.toLowerCase());
+                    const partName = dbPart ? dbPart.name : up.name;
+                    const partNum = dbPart ? dbPart.partNumber : "N/A";
+                    const partId = dbPart ? dbPart.id : crypto.randomUUID(); 
+                    return {
+                        partId: partId,
+                        name: partName,
+                        partNumber: partNum,
+                        quantity: up.quantity || "1"
+                    };
+               });
+               const sparePartsString = usedPartsData.map((p: any) => `${p.name} (${p.partNumber})`).join('\n');
+               const quantityString = usedPartsData.map((p: any) => p.quantity).join('\n');
+               processedPartsUpdate = {
+                   usedParts: usedPartsData,
+                   spareParts: sparePartsString,
+                   quantity: quantityString
+               };
+          }
+
+          const updateLogic = (prev: ReportData) => {
+              let found = false;
+              const shifts = ['night', 'morning', 'evening'] as const;
+              const newShifts = { ...prev.shifts };
+
+              for (const s of shifts) {
+                  const entryIndex = newShifts[s].entries.findIndex(e => e.id === id);
+                  if (entryIndex !== -1) {
+                      found = true;
+                      const oldEntry = newShifts[s].entries[entryIndex];
+                      const newEntry = { 
+                          ...oldEntry, 
+                          ...updates, 
+                          ...processedPartsUpdate 
+                      };
+                      const newEntries = [...newShifts[s].entries];
+                      newEntries[entryIndex] = newEntry;
+                      newShifts[s] = { ...newShifts[s], entries: newEntries };
+                      break; 
+                  }
+              }
+              if (!found) throw new Error("Entry ID not found.");
+              return { ...prev, shifts: newShifts };
+          };
+
+          // Apply to current
+          return new Promise((resolve) => {
+              setReport(prev => {
+                  try {
+                      const newReport = updateLogic(prev);
+                      resolve("Entry updated successfully.");
+                      return newReport;
+                  } catch (e: any) {
+                      resolve(`Error: ${e.message}`);
+                      return prev;
+                  }
+              });
+          });
+
+      } else if (toolName === 'delete_log_entry') {
+          const { id } = args;
+          const deleteLogic = (prev: ReportData) => {
+              let found = false;
+              const shifts = ['night', 'morning', 'evening'] as const;
+              const newShifts = { ...prev.shifts };
+
+              for (const s of shifts) {
+                  const initialLength = newShifts[s].entries.length;
+                  const newEntries = newShifts[s].entries.filter(e => e.id !== id);
+                  if (newEntries.length < initialLength) {
+                      found = true;
+                      newShifts[s] = { ...newShifts[s], entries: newEntries };
+                      break; 
+                  }
+              }
+              if (!found) throw new Error("Entry ID not found.");
+              return { ...prev, shifts: newShifts };
+          };
+
+          // Apply to current
+          return new Promise((resolve) => {
+              setReport(prev => {
+                  try {
+                      const newReport = deleteLogic(prev);
+                      resolve("Entry deleted successfully.");
+                      return newReport;
+                  } catch (e: any) {
+                      resolve(`Error: ${e.message}`);
+                      return prev;
+                  }
+              });
+          });
+
       } else if (toolName === 'change_date') {
           if (args.date) {
               setCurrentDate(args.date);
@@ -1110,6 +1212,15 @@ const App: React.FC = () => {
         machines={machines}
         availableEngineers={availableEngineers}
         onToolAction={handleAiToolAction}
+      />
+
+      {/* AI Analysis Window (Large) */}
+      <AIAnalysisWindow 
+        isOpen={analysisWindowOpen} 
+        onClose={() => setAnalysisWindowOpen(false)} 
+        apiKey={settings.geminiApiKey}
+        model={settings.aiModel}
+        sections={sections}
       />
 
       {/* Analytics Modal */}
@@ -1562,19 +1673,30 @@ const App: React.FC = () => {
                    <Check size={12} /> Auto-Saving On
                 </div>
                 
+                {/* AI Chat (Small) */}
                 <button 
                     onClick={() => setAiChatOpen(!aiChatOpen)}
                     className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-200"
-                    title="AI Copilot"
+                    title="Quick AI Copilot"
                 >
                     <Sparkles size={16} className="text-yellow-300" />
-                    AI Copilot
+                    Copilot
+                </button>
+
+                {/* AI Analysis (Large) */}
+                <button 
+                    onClick={() => setAnalysisWindowOpen(true)}
+                    className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-blue-200"
+                    title="Full Data Analysis"
+                >
+                    <LineChart size={16} className="text-white" />
+                    Analysis
                 </button>
 
                 <button 
                     onClick={calculateAnalytics}
                     className="flex items-center gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-all border border-indigo-200"
-                    title="Analytics Dashboard"
+                    title="Standard Analytics"
                 >
                     <BarChart3 size={16} />
                 </button>

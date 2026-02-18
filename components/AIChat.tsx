@@ -31,7 +31,7 @@ interface Attachment {
 export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, report, sparePartsDB, machines, availableEngineers, onToolAction }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'model', content: 'Hello! I am your MaintLog Assistant. I can analyze your report, add detailed entries, manage spare parts, or assign engineers. How can I help?' }
+    { role: 'model', content: 'Hello! I am your MaintLog Assistant. I can analyze your report, add/edit entries, manage spare parts, or assign engineers. How can I help?' }
   ]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -146,6 +146,48 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
             }
         };
 
+        const editLogEntryTool: FunctionDeclaration = {
+            name: "edit_log_entry",
+            description: "Edits an existing log entry. You MUST provide the 'id' of the entry (found in the system context) to update it.",
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    id: { type: Type.STRING, description: "The UUID of the entry to edit (Required)." },
+                    machine: machines.length > 0 
+                        ? { type: Type.STRING, enum: machines, description: "New machine name." }
+                        : { type: Type.STRING, description: "New machine name." },
+                    line: { type: Type.STRING, description: "New line numbers." },
+                    description: { type: Type.STRING, description: "New work description." },
+                    totalTime: { type: Type.STRING, description: "New total time." },
+                    notes: { type: Type.STRING, description: "New notes." },
+                    used_parts: {
+                        type: Type.ARRAY,
+                        description: "New list of spare parts used (This overwrites existing parts).",
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                name: { type: Type.STRING, description: "Name of the part." },
+                                quantity: { type: Type.STRING, description: "Quantity used." }
+                            }
+                        }
+                    }
+                },
+                required: ["id"]
+            }
+        };
+
+        const deleteLogEntryTool: FunctionDeclaration = {
+            name: "delete_log_entry",
+            description: "Deletes a specific log entry. You MUST provide the 'id' of the entry.",
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    id: { type: Type.STRING, description: "The UUID of the entry to delete." }
+                },
+                required: ["id"]
+            }
+        };
+
         const addSparePartTool: FunctionDeclaration = {
             name: "add_spare_part",
             description: "Adds a new spare part to the section's database. Use this when the user explicitly mentions adding a part to the database/system.",
@@ -210,14 +252,23 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
              }
         };
 
-        // Prepare Context
+        // Prepare Context with IDs for editing
         const simplifiedReport = {
             date: report.date,
             section: report.section,
             shifts: {
-                night: { engineers: report.shifts.night.engineers, entries: report.shifts.night.entries.filter(e => e.machine || e.description).map(e => ({ machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts })) },
-                morning: { engineers: report.shifts.morning.engineers, entries: report.shifts.morning.entries.filter(e => e.machine || e.description).map(e => ({ machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts })) },
-                evening: { engineers: report.shifts.evening.engineers, entries: report.shifts.evening.entries.filter(e => e.machine || e.description).map(e => ({ machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts })) },
+                night: { 
+                    engineers: report.shifts.night.engineers, 
+                    entries: report.shifts.night.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
+                },
+                morning: { 
+                    engineers: report.shifts.morning.engineers, 
+                    entries: report.shifts.morning.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
+                },
+                evening: { 
+                    engineers: report.shifts.evening.engineers, 
+                    entries: report.shifts.evening.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
+                },
             }
         };
         
@@ -241,13 +292,15 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
         
         Rules:
         1. When adding entries, YOU MUST ONLY use machine names from the 'VALID MACHINE LIST'.
-        2. If the user specifies a relative date, calculate the YYYY-MM-DD string.
-        3. If the user provides a calculation for time, calculate the sum for the totalTime field.
-        4. Engineer Management:
+        2. To EDIT or DELETE an entry, you MUST first find its 'id' in the 'Current Report Data' provided above. 
+           - Use 'edit_log_entry(id="...")' to modify fields.
+           - Use 'delete_log_entry(id="...")' to remove an entry.
+        3. If the user specifies a relative date, calculate the YYYY-MM-DD string.
+        4. If the user provides a calculation for time, calculate the sum for the totalTime field.
+        5. Engineer Management:
            - Use 'manage_engineers' with action 'assign_to_shift' to set the team for a specific shift.
            - If the user asks to add a NEW engineer to the system/list, use action 'add_to_database'.
-           - If assigning an engineer who is NOT in the 'AVAILABLE ENGINEERS DATABASE', YOU MUST add them to the database as well (the tool handles this, just send the name).
-        5. Analyze any attached images or files to extract data if requested.
+        6. Analyze any attached images or files to extract data if requested.
         `;
 
         const chatHistory: any[] = messages.slice(1).map(m => ({
@@ -280,7 +333,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
             contents: [...chatHistory, { role: 'user', parts: currentUserContentParts }],
             config: {
                 systemInstruction: systemPrompt,
-                tools: [{ functionDeclarations: [addLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
+                tools: [{ functionDeclarations: [addLogEntryTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
             }
         });
         
@@ -330,7 +383,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
                     ],
                     config: {
                     systemInstruction: systemPrompt,
-                    tools: [{ functionDeclarations: [addLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
+                    tools: [{ functionDeclarations: [addLogEntryTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
                     }
             });
             
