@@ -1,7 +1,7 @@
 MaintLog Pro - Digital Daily Maintenance Activity Report
 ======================================================
 Developed by: Mahamed Algaroshy
-Version: 2.0.0 (2026)
+Version: 2.1.0 (2026)
 
 1. OVERVIEW
 -----------
@@ -20,7 +20,17 @@ A. STRUCTURED REPORTING
      - **Rename Sections**: Easily rename sections; data is automatically migrated.
    - Dynamic Rows: Users can add (+) or remove (trash icon) rows.
 
-B. SMART GRID INTERFACE
+B. AI INTELLIGENCE (GOOGLE GEMINI)
+   - **Copilot Chat**: 
+     - Add Logs via Voice/Text: "Add entry for Filler, replaced seal, 30 mins".
+     - **Batch Operations**: "Delete all logs from yesterday" or "Fill last week with random data".
+     - **Multi-Date Support**: The AI can write to logs across different dates simultaneously.
+   - **Visual Analysis**: 
+     - Generates Bar Charts, Pie Charts, and Tables based on your log history.
+     - Analyzes downtime, part usage, and failure patterns.
+   - **Image Generation**: Creates visualizations for maintenance scenarios using Gemini/Imagen models.
+
+C. SMART GRID INTERFACE
    1. MACHINE COLUMN (with Manager):
       - Dropdown list of machines specific to the selected Section.
       - Machine Manager: Click the 'Settings' (gear) icon in the column header to Add/Edit/Delete machines.
@@ -43,7 +53,7 @@ B. SMART GRID INTERFACE
         - **Delete**: Hover over a part and click the Trash icon to remove it.
       - **Duplicate Check**: The system alerts you if you try to create a part with a name or number that already exists.
 
-C. WORKFLOW OPTIMIZATION
+D. WORKFLOW OPTIMIZATION
    - **Pre-loaded Engineers**: Easily select engineers from a checkbox list. Add new ones on the fly.
    - **Efficient Data Entry**: 
      - Use Tab to navigate between fields.
@@ -51,33 +61,31 @@ C. WORKFLOW OPTIMIZATION
      - Auto-resizing text areas for long descriptions.
    - **Visual Clarity**: Alternate row shading and clear borders aid readability.
 
-D. CUSTOMIZATION (SETTINGS)
+E. CUSTOMIZATION (SETTINGS)
    - Color Palettes: Choose from distinct color palettes (Blue, Green, Slate, etc.).
    - Font Control: Change Font Family and Size (Small to XL).
    - Compact Mode: Toggle "Compact Row Mode" to reduce row height and padding, fitting more data on a single printed page.
-   - **Column Visibility**: Show or hide 'Line' and 'Time' columns.
-   - **Confirm Row Deletion**: Toggle safety prompt before deleting rows.
-   - **Spell Check**: Enable/Disable browser spell check.
+   - **AI Configuration**: Set API Key, Thinking Budget, and Models.
+   - **Auto-Capitalize**: Toggle automatic sentence capitalization.
 
-E. EXPORT & REPORTING
+F. EXPORT & REPORTING
    - **Print / PDF**: Generates a clean, borderless print view optimized for landscape A4 paper. Header/Footer URLs are automatically removed.
    - **CSV Export**: Download data in standard CSV format for import into Excel, PowerBI, or ERP systems.
    - **Shift Filtering**: Choose to print/export only specific shifts (e.g., Night Shift only).
 
-F. DATA PRIVACY & OFFLINE CAPABILITY
-   - **Zero-Install Deployment**: Runs entirely in the browser. No server setup required.
-   - **Local Storage**: All data is stored securely in the user's browser (LocalStorage). 
-   - **Privacy**: No data is sent to the cloud. Your maintenance logs remain on your device.
+G. DATA PRIVACY & SYNC
+   - **Local Storage**: All data is stored securely in the user's browser.
+   - **Cloud Sync**: Uses the File System Access API to save a single JSON database file to your local disk (e.g., inside a Google Drive/OneDrive folder) for seamless cloud syncing without sending data to our servers.
    - **Offline Use**: The app functions 100% offline once loaded.
 
 3. HOW TO USE
 -------------
 1. Login using provided credentials (default: admin/admin).
 2. Select 'Section' (or create a new one using the gear icon) and 'Date'.
-3. Use the Settings (Gear icon in toolbar) to customize colors, fonts, column visibility, and layout density.
+3. Use the Settings (Gear icon in toolbar) to customize colors, fonts, and AI API keys.
 4. Add engineers to the shift roster using the "Select Engineers" dropdown. 
    - Default Engineer: Mahamed Algaroshy is pre-loaded. Add more via the dropdown input.
-5. Log activities manually. Use the time calculator for precise duration tracking.
+5. Log activities manually OR ask the AI Copilot to do it.
 6. Click 'Print / PDF' to export. Choose "Print All Shifts" or a specific shift.
 
 4. INSTALLATION & LOCAL USE
@@ -88,7 +96,8 @@ F. DATA PRIVACY & OFFLINE CAPABILITY
 
 5. TROUBLESHOOTING
 ------------------
+- "AI not working": Ensure you have a valid Google Gemini API Key in Settings > AI Copilot.
 - "My data is gone": Ensure you are on the correct date and section. Check if browser cache was cleared.
 - "Printing looks wrong": Ensure "Background Graphics" is enabled in your browser print settings.
 - "Cannot update part": Ensure you are not changing the name to one that already exists (duplicates are prevented).
-- "Inputs look hidden": If inputs are hard to see, ensure your browser theme or extensions aren't overriding high-contrast modes.
+- "Sync not working": Browser must support File System Access API (Chrome/Edge desktop). Use Manual Backup if on mobile/Firefox.

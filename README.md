@@ -12,9 +12,11 @@
 - **Offline Persistence:** All data is stored locally in the browser (`localStorage`). No server setup required.
 
 ### 🧠 AI Copilot & Analysis (Powered by Google Gemini)
-- **Chat Assistant:** Natural language commands to add logs, edit entries, or manage databases (e.g., *"Add a log for the Filler machine that the sensor was replaced"*).
+- **Chat Assistant:** Natural language commands to manage your logs.
+  - **Batch Operations:** Add, edit, or delete multiple entries at once (e.g., *"Delete all entries from the Night shift today"*).
+  - **Multi-Date Generation:** Generate logs for date ranges (e.g., *"Add 5 random entries per shift for the last 7 days"*).
 - **Data Analyst:** Ask questions about your history (e.g., *"Which machine had the most downtime last month?"*).
-- **Visualizations:** The AI generates on-demand Bar Charts, Pie Charts, and Data Tables.
+- **Visualizations:** The AI generates on-demand Bar Charts, Pie Charts, and Data Tables based on your log history.
 - **Image Generation:** Visualize maintenance scenarios or concepts using integrated Gemini/Imagen models.
 - **Thinking Budget:** Configurable "reasoning" capacity for complex problem solving (Gemini 2.5/3.0).
 
@@ -27,7 +29,7 @@
 ### 🖨️ Reporting & Export
 - **Print Mode:** CSS-optimized A4 Landscape layout that removes UI clutter for official hard-copy filing.
 - **CSV Export:** Bulk export data across date ranges for external analysis (Excel/PowerBI).
-- **JSON Backup:** Full database backup and restore functionality.
+- **Cloud Sync (via File System):** Sync your database to Google Drive/OneDrive by saving to a local file that your cloud client syncs.
 
 ## 🛠️ Tech Stack
 - **Framework:** React 19 + Vite

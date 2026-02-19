@@ -5,7 +5,7 @@ Generated: 2026-05-20
 
 1. SYSTEM OVERVIEW
 ------------------
-MaintLog Pro is a client-side, single-page application (SPA) designed to replace physical industrial maintenance logbooks. It functions as a specialized digital spreadsheet with intelligent data isolation, rich text capabilities, and automated reporting tools.
+MaintLog Pro is a client-side, single-page application (SPA) designed to replace physical industrial maintenance logbooks. It functions as a specialized digital spreadsheet with intelligent data isolation, rich text capabilities, automated reporting tools, and advanced AI integration.
 
 2. AUTHENTICATION & ACCESS
 --------------------------
@@ -29,6 +29,8 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
      - **Settings Trigger:** Opens the Global Settings Modal.
    - **Right Section:**
      - **Auto-Save Indicator:** Green badge "Auto-Saving On" (triggers every 5 seconds).
+     - **AI Copilot:** Button to open the Chat Interface.
+     - **AI Analysis:** Button to open the Data Visualization Dashboard.
      - **Export CSV:** Downloads current view data.
      - **Print/PDF:** Opens Print Options Modal.
      - **Logout:** Clears session and returns to Login screen.
@@ -113,9 +115,8 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
    - **Smart Suggestions (Ghost Text):**
      - **Logic:** Matches typed text against a dictionary of ~30 default maintenance terms + user-learned terms.
      - **Visual:** Displays suggestion as grey text ahead of cursor.
-     - **Interaction:** Press `Tab` to accept suggestion.
+     - **Interaction:** Press `Tab` or `Right Arrow` to accept suggestion.
      - **Learning:** New unique descriptions are auto-saved to "Learned Suggestions" on blur.
-     - **Rich Text Compat:** Ghost text rendering uses an invisible HTML mirror to ensure pixel-perfect alignment even with bold/colored text.
 
 6.5. Total Time Column
    - **Visibility:** Toggleable via Settings.
@@ -164,14 +165,19 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
    - **Hide Empty Rows (Print):** If checked, rows with no data are excluded from the print view.
    - **Confirm Delete Row:** Toggle safety prompt.
    - **Spell Check:** Toggle browser native spellcheck.
+   - **Auto Capitalize:** Toggles automatic capitalization of first letters.
 
 7.3. Branding
    - **Custom Logo:** Upload image (converted to Base64 and stored in LocalStorage).
    - **Report Title:** Text input to rename the top header.
    - **Date Format:** ISO, UK (DD/MM/YYYY), US (MM/DD/YYYY).
 
-7.4. Advanced Data Export
-   - **Date Range CSV:** Select Start/End date to export a bulk CSV for AI analysis.
+7.4. AI Configuration
+   - **API Key:** Input for Google Gemini API.
+   - **Model Selection:** Gemini 3 Flash, Gemini 3 Pro, Gemini 2.0 Flash.
+   - **Creativity:** Temperature slider (0.0 - 1.0).
+   - **Thinking Budget:** Slider for reasoning token limit (0 - 8192).
+   - **Image Generation:** Toggle on/off, Model Select (Gemini/Imagen), Aspect Ratio.
 
 8. OUTPUT & REPORTING
 ---------------------
@@ -186,11 +192,12 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
 
 8.2. CSV Export
    - **Single Day:** Exports current view.
+   - **Bulk Export:** Date range selector for exporting multiple days.
    - **Format:** Columns: Date, Section, Shift, Machine, Line, Description, Total Time, Spare Parts, Qty, Notes.
    - **Sanitization:** Strips HTML tags from Rich Text fields. Escapes quotes for CSV validity.
 
-9. TECHNICAL PERSISTENCE
-------------------------
+9. TECHNICAL PERSISTENCE & SYNC
+-------------------------------
 9.1. LocalStorage Keys
    - `isLoggedIn`: Boolean.
    - `appSettings`: JSON object (theme, fonts, toggles).
@@ -206,9 +213,31 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
    - **Mechanism:** `setInterval` runs every 5 seconds.
    - **Logic:** Checks a `isDirty` ref. If true, writes to LocalStorage and resets flag.
 
-10. KEYBOARD SHORTCUTS
+9.3. File System Sync
+   - **Technology:** `FileSystemFileHandle` API.
+   - **Function:** Allows user to pick a local file (e.g. `MaintLogPro_Sync.json`).
+   - **Behavior:** On every auto-save, the full application state is serialized and written to this file.
+   - **Cloud Integation:** If the file is in a synced folder (Dropbox/OneDrive/Google Drive), it effectively syncs the app state across devices.
+
+10. AI INTEGRATION
+------------------
+10.1. Copilot (Chat)
+   - **Tools:**
+     - `add_log_entries`: Supports adding array of entries. Supports custom `date` per entry.
+     - `edit_log_entries`: Batch edit existing entries by ID.
+     - `delete_log_entries`: Batch delete entries by ID.
+     - `manage_engineers`: Add/Assign engineers.
+     - `add_spare_part`: Update DB.
+     - `analyze_report`: Read current context.
+   - **Capabilities:** Can generate synthetic data for past dates, parse natural language time durations, and handle attachments.
+
+10.2. Analysis Window
+   - **Tools:** `get_maintenance_data`, `generate_image`.
+   - **Outputs:** Interactive Bar Charts, Pie Charts, Tables, and AI-generated Images.
+
+11. KEYBOARD SHORTCUTS
 ----------------------
 - **Tab:** Move to next cell.
-- **Tab (in Description):** Accept Ghost Text suggestion.
+- **Tab / Right Arrow (in Description):** Accept Ghost Text suggestion.
 - **Ctrl+Z:** Undo last action.
 - **Ctrl+Y:** Redo last action.

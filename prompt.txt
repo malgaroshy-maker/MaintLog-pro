@@ -14,8 +14,9 @@ The app mimics a physical daily report sheet used in factories. It tracks mainte
     - **Shift:** Contains a Title, a list of assigned Engineers, and a list of Log Entries.
     - **Log Entry:** Represents a single maintenance task. Contains: Machine Name, Production Line, Work Description, Total Duration, Spare Parts Used (and Quantity), and Notes.
 
-3.  **Persistence:**
-    - The application must persist data so it survives page reloads. (e.g., LocalStorage, IndexedDB, or a Backend).
+3.  **Persistence & Sync:**
+    - The application must persist data so it survives page reloads (LocalStorage).
+    - Implement **File System Sync** to allow saving the entire database to a local JSON file that can be synced via cloud storage providers (Google Drive/OneDrive).
 
 ### UI Layout & Features
 
@@ -44,13 +45,18 @@ The app mimics a physical daily report sheet used in factories. It tracks mainte
 Each shift contains a dynamic table/grid where users log tasks. Columns include:
 1.  **Machine:** Auto-complete input. Must include a "Machine Manager" feature to Add/Edit/Delete machines in the database.
 2.  **Line:** (Optional/Configurable) Selector for Production Line number.
-3.  **Work Description:** Text area for details.
+3.  **Work Description:** Text area for details. Should support Rich Text and Auto-Complete suggestions.
 4.  **Total Time:** Read-only field. Must include a **Time Calculator** tool that allows users to input start/end times (e.g., 10:00-11:00) and auto-calculates the duration.
 5.  **Spare Parts:** Read-only summary. Must include a **Spare Parts Database** tool.
     -   *Spare Parts Tool Logic:* A modal to manage a library of parts (Name, Part Number) and select specific parts + quantities for the current task.
 6.  **Quantity:** Read-only summary of parts used.
 7.  **Notes:** Additional text area.
 8.  **Actions:** Ability to delete the row.
+
+### AI Integration (Google Gemini)
+-   **Copilot Chat:** A conversational interface to add/edit/delete logs via natural language. Must support **batch operations** and **multi-date** entries.
+-   **Analysis Window:** A dashboard where the AI can query the database and generate **charts** (Bar/Pie) and **images**.
+-   **Configuration:** Settings for API Key, Model Selection (Flash/Pro), and Thinking Budget.
 
 ### Customization & Settings
 The app should include a settings menu to configure:
@@ -67,4 +73,4 @@ The app should include a settings menu to configure:
 -   Ensure borders are sharp and high-contrast.
 
 ### Deliverable
-Produce the complete source code using a modern frontend technology stack of your choice. Ensure the code is modular, robust, and handles edge cases (like missing data) gracefully.
+Produce the complete source code using a modern frontend technology stack (React + Vite + TypeScript). Ensure the code is modular, robust, and handles edge cases (like missing data) gracefully.
