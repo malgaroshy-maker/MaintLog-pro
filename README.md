@@ -2,7 +2,7 @@
 
 **MaintLog Pro** is a professional, offline-first digital logbook designed for industrial maintenance teams. It replaces traditional paper "Daily Maintenance Activity Reports" with a smart, AI-powered web application that mimics industry-standard spreadsheet layouts while adding powerful database and analytical capabilities.
 
-![MaintLog Pro Screenshot](https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=1000&ixlib=rb-4.0.3)
+![MaintLog Pro Screenshot](https://gemini.google.com/share/ddef955c55a8)
 
 ## 🚀 Key Features
 
