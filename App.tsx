@@ -950,13 +950,18 @@ const App: React.FC = () => {
           }
       }
 
-      if (toolName === 'add_log_entry') {
+      if (toolName === 'add_log_entries') {
           try {
-              updatedReport = addEntryToReportObject(updatedReport, args, sparePartsDB);
-              updateReport(updatedReport);
-              return "Entry added successfully.";
+              if (Array.isArray(args.entries)) {
+                  args.entries.forEach((entryArgs: any) => {
+                      updatedReport = addEntryToReportObject(updatedReport, entryArgs, sparePartsDB);
+                  });
+                  updateReport(updatedReport);
+                  return `Successfully added ${args.entries.length} entries.`;
+              }
+              return "Invalid format: entries must be an array.";
           } catch (e: any) {
-              return "Failed to add entry: " + e.message;
+              return "Failed to add entries: " + e.message;
           }
       }
 
@@ -1267,13 +1272,13 @@ const App: React.FC = () => {
                                 <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Sparkles /> AI Configuration</h2>
                                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
                                     <label className="block text-xs font-bold text-slate-500 mb-1">API Key</label>
-                                    <input type="password" className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white" value={settings.geminiApiKey || ''} onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})} placeholder="Enter Google Gemini API Key..." />
+                                    <input type="password" className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white text-black" value={settings.geminiApiKey || ''} onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})} placeholder="Enter Google Gemini API Key..." />
                                 </div>
                                 
                                 <div className="space-y-6">
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-2">Model Selection</label>
-                                        <select className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white" value={settings.aiModel} onChange={(e) => setSettings({...settings, aiModel: e.target.value})}>
+                                        <select className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white text-black" value={settings.aiModel} onChange={(e) => setSettings({...settings, aiModel: e.target.value})}>
                                             <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Efficient)</option>
                                             <option value="gemini-3-pro-preview">Gemini 3 Pro (Reasoning & Complex Tasks)</option>
                                             <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
@@ -1314,14 +1319,14 @@ const App: React.FC = () => {
                                             <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
                                                 <div>
                                                     <label className="block text-xs font-bold text-slate-500 mb-1">Image Model</label>
-                                                    <select className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white" value={settings.aiImageModel} onChange={(e) => setSettings({...settings, aiImageModel: e.target.value})}>
+                                                    <select className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white text-black" value={settings.aiImageModel} onChange={(e) => setSettings({...settings, aiImageModel: e.target.value})}>
                                                         <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
                                                         <option value="imagen-3.0-generate-001">Imagen 3.0</option>
                                                     </select>
                                                 </div>
                                                 <div>
                                                     <label className="block text-xs font-bold text-slate-500 mb-1">Aspect Ratio</label>
-                                                    <select className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white" value={settings.aiImageAspectRatio} onChange={(e) => setSettings({...settings, aiImageAspectRatio: e.target.value as any})}>
+                                                    <select className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white text-black" value={settings.aiImageAspectRatio} onChange={(e) => setSettings({...settings, aiImageAspectRatio: e.target.value as any})}>
                                                         <option value="1:1">Square (1:1)</option>
                                                         <option value="16:9">Landscape (16:9)</option>
                                                         <option value="4:3">Standard (4:3)</option>

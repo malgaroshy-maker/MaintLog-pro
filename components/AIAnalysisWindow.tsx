@@ -211,9 +211,9 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
           if (functionCalls && functionCalls.length > 0) {
               const toolResults = await Promise.all(functionCalls.map(async (call) => {
                   if (call.name === 'get_maintenance_data') {
-                      const start = call.args.startDate;
-                      const end = call.args.endDate;
-                      const sec = call.args.section || currentSection;
+                      const start = call.args.startDate as string;
+                      const end = call.args.endDate as string;
+                      const sec = (call.args.section as string) || currentSection;
                       
                       const data = getAllData(start, end, sec);
                       const jsonResult = JSON.stringify(data);
