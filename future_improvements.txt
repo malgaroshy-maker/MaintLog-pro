@@ -1,0 +1,49 @@
+MaintLog Pro - Future Improvements & Roadmap
+============================================
+Generated: 2026-05-20
+
+This document outlines suggested enhancements, features, and architectural shifts for future versions of MaintLog Pro.
+
+1. ARCHITECTURE & CLOUD
+-----------------------
+*   **Real-Time Collaboration:** Migrate from `localStorage` + File Sync to a backend-as-a-service (e.g., Supabase, Firebase, or PocketBase). This would enable live cursors, simultaneous editing by multiple users, and instant conflict resolution.
+*   **Progressive Web App (PWA) Polish:** Enhance the service worker implementation to support background syncing when connectivity is restored, ensuring zero data loss in intermittent internet environments.
+*   **Self-Hosted Container:** Create a Dockerized version of the app with a lightweight Node.js/Express backend for factories that require on-premise hosting without internet access.
+
+2. ASSET & WORKFLOW MANAGEMENT
+------------------------------
+*   **Preventative Maintenance (PM) Scheduler:** 
+    -   Current state: Reactive logging (what happened).
+    -   Future state: Proactive scheduling. Allow users to set recurring tasks (e.g., "Weekly Greasing") that automatically appear in the log grid as pending items on due dates.
+*   **Asset Lifecycle Tracking:** Expand the "Machine Manager" into a full Asset Management module. Track installation dates, warranty status, and total lifetime maintenance costs per machine.
+*   **Inventory Thresholds:** Add "Minimum Stock Levels" to the Spare Parts Database. If usage drops quantity below the threshold, highlight the part in red or generate a "To Order" list.
+
+3. HARDWARE INTEGRATION
+-----------------------
+*   **QR Code / Barcode Scanning:** 
+    -   Use the device camera to scan machine tags to automatically filter the log grid.
+    -   Scan spare part barcodes to instantly add them to a log entry.
+*   **IoT Webhooks:** Expose an API endpoint (local or cloud) where PLCs (Programmable Logic Controllers) can automatically inject error codes or downtime events directly into the log drafts.
+
+4. AI ENHANCEMENTS (GEMINI EVOLUTION)
+-------------------------------------
+*   **Predictive Maintenance Models:** Use the historical log data to train a lightweight model (TensorFlow.js) or fine-tune a Gemini model to predict likely breakdowns based on recent "noise" or "vibration" keywords in logs.
+*   **Voice-First Mode:** Implement a "Hands-Free" mode using the Web Speech API coupled with Gemini correction. Maintenance technicians can dictate logs while working on a machine.
+*   **Automatic Root Cause Analysis (RCA):** When a major breakdown is logged (>2 hours), have the AI automatically suggest a "5 Whys" analysis structure in the notes.
+
+5. ENTERPRISE FEATURES
+----------------------
+*   **ERP Integration:** Build connectors for SAP PM, IBM Maximo, or Microsoft Dynamics 365. Allow one-click export of CSVs formatted specifically for these systems.
+*   **Role-Based Access Control (RBAC):** Replace the simple Admin/User login with granular permissions (e.g., "Viewer", "Technician", "Supervisor", "System Admin").
+*   **SSO (Single Sign-On):** Support OIDC/SAML for corporate login integration (Azure AD, Okta).
+
+6. UX / UI IMPROVEMENTS
+-----------------------
+*   **Mobile-Specific View:** The current layout is optimized for A4 Landscape/Desktop. Create a separate "Card View" for mobile phones where rows are stacked vertically for easier scrolling on small screens.
+*   **Kanban Board:** A visual view for "Pending" vs "Completed" tasks during a shift.
+*   **Multi-Language Support (i18n):** Implement a translation layer for the UI to support multi-national factory teams.
+
+7. REPORTING & ANALYTICS
+------------------------
+*   **MTTR / MTBF Calculations:** Automatically calculate Mean Time To Repair and Mean Time Between Failures for each machine based on the log timestamps.
+*   **Shift Handover Digest:** Generate a specific PDF summary designed for the "Shift Handover Meeting", highlighting only unresolved issues and safety incidents.
