@@ -69,6 +69,7 @@ export interface AppSettings {
   aiImageModel: string;
   aiImageAspectRatio: '1:1' | '3:4' | '4:3' | '16:9' | '9:16';
   aiThinkingBudget: number;
+  lastSyncTime?: string;
 }
 
 export const INITIAL_ENTRY: LogEntry = {

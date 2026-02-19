@@ -251,6 +251,7 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
   const showLine = appSettings?.showLineColumn ?? true;
   const showTime = appSettings?.showTimeColumn ?? true;
   const suggestionsEnabled = appSettings?.enableSuggestions ?? true;
+  const autoCapitalize = appSettings?.autoCapitalize ?? false; // Check setting
 
   // New Weighted Layout for wider notes
   let descWidth = 32;
@@ -279,6 +280,18 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
         if (!confirm("Are you sure you want to delete this row?")) return;
     }
     onChange({ ...shift, entries: shift.entries.filter(e => e.id !== id) });
+  };
+
+  // --- Auto Capitalize Helper ---
+  const applyAutoCapitalize = (val: string): string => {
+      // Don't modify if it looks like HTML tags are present at start
+      if (val.trim().startsWith('<')) return val;
+      
+      const cleanVal = val.trim();
+      if (cleanVal.length > 0) {
+          return cleanVal.charAt(0).toUpperCase() + cleanVal.slice(1);
+      }
+      return val;
   };
 
   // --- Line Selection Logic ---
@@ -873,6 +886,10 @@ const ShiftSection: React.FC<ShiftSectionProps> = ({
                value={entry.description || ''}
                onChange={(val) => handleEntryChange(entry.id, 'description', val)}
                onBlur={(val) => {
+                  if (autoCapitalize) {
+                      const capped = applyAutoCapitalize(val);
+                      if(capped !== val) handleEntryChange(entry.id, 'description', capped);
+                  }
                   if (onLearnSuggestion) {
                       // Strip HTML for learning mechanism
                       onLearnSuggestion(val.replace(/<[^>]*>/g, ''));
