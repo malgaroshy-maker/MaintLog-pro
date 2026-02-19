@@ -851,14 +851,15 @@ const App: React.FC = () => {
       return isoDate;
   }
 
-  // AI Tools truncated for brevity, assume unchanged logic for `addEntryToReportObject` and `handleAiToolAction`
+  // AI Tools logic
   const addEntryToReportObject = (reportObj: ReportData, args: any, currentSparePartsDB: SparePart[]) => {
-     // ... same as before
-     const shiftId = args.shift?.toLowerCase() as 'night'|'morning'|'evening';
-      if (!shiftId || !['night','morning','evening'].includes(shiftId)) throw new Error("Invalid shift");
+      const shiftId = args.shift?.toLowerCase() as 'night'|'morning'|'evening';
+      if (!shiftId || !['night','morning','evening'].includes(shiftId)) throw new Error("Invalid shift: " + args.shift);
       
       const shift = reportObj.shifts[shiftId];
-      const emptyEntry = shift.entries.find(e => !e.machine && !e.description);
+      // Try to find the first truly empty row to overwrite, otherwise append
+      const emptyEntryIndex = shift.entries.findIndex(e => !e.machine && !e.description && !e.notes);
+      
       let newEntries = [...shift.entries];
       
       let usedPartsData: UsedPart[] = [];
@@ -888,9 +889,11 @@ const App: React.FC = () => {
           usedParts: usedPartsData
       };
 
-      if (emptyEntry) {
-          newEntries = newEntries.map(e => e.id === emptyEntry.id ? { ...e, ...entryData } : e);
+      if (emptyEntryIndex !== -1) {
+          // Update the existing empty row
+          newEntries[emptyEntryIndex] = { ...newEntries[emptyEntryIndex], ...entryData };
       } else {
+          // Append new row
           newEntries.push({ ...INITIAL_ENTRY, id: crypto.randomUUID(), ...entryData });
       }
 
@@ -898,8 +901,116 @@ const App: React.FC = () => {
   };
 
   const handleAiToolAction = async (toolName: string, args: any): Promise<any> => {
-      // ... logic for tool actions (same as before)
-      return "Executed";
+      // Use ref to ensure we work with latest data in current closure
+      const currentReport = reportRef.current;
+      let updatedReport = JSON.parse(JSON.stringify(currentReport));
+
+      if (toolName === 'change_date') {
+          if (args.date) {
+              setCurrentDate(args.date);
+              return `Date changed to ${args.date}`;
+          }
+          return "No date provided";
+      }
+
+      if (toolName === 'add_spare_part') {
+          if (args.name && args.partNumber) {
+              // Check duplicate
+              if (sparePartsDB.some(p => p.name.toLowerCase() === args.name.toLowerCase())) {
+                  return "Part already exists.";
+              }
+              const newPart = { id: crypto.randomUUID(), name: args.name, partNumber: args.partNumber };
+              const updatedDB = [...sparePartsDB, newPart];
+              setSparePartsDB(updatedDB); // This triggers the useEffect to save to localStorage
+              return `Spare part added: ${args.name}`;
+          }
+          return "Name and Part Number required";
+      }
+
+      if (toolName === 'manage_engineers') {
+          if (args.action === 'add_to_database') {
+              const newNames = args.names.filter((n: string) => !availableEngineers.includes(n));
+              if (newNames.length > 0) {
+                  const updated = [...availableEngineers, ...newNames];
+                  setAvailableEngineers(updated);
+                  localStorage.setItem(`availableEngineers_${currentSection}`, JSON.stringify(updated));
+                  return `Added engineers to database: ${newNames.join(', ')}`;
+              }
+              return "Engineers already exist in database.";
+          }
+          if (args.action === 'assign_to_shift') {
+              const shiftId = args.shift?.toLowerCase();
+              if (shiftId && ['night','morning','evening'].includes(shiftId)) {
+                  const names = args.names.join(', ');
+                  updatedReport.shifts[shiftId].engineers = names;
+                  updateReport(updatedReport);
+                  return `Assigned ${names} to ${shiftId} shift.`;
+              }
+              return "Invalid shift for assignment.";
+          }
+      }
+
+      if (toolName === 'add_log_entry') {
+          try {
+              updatedReport = addEntryToReportObject(updatedReport, args, sparePartsDB);
+              updateReport(updatedReport);
+              return "Entry added successfully.";
+          } catch (e: any) {
+              return "Failed to add entry: " + e.message;
+          }
+      }
+
+      if (toolName === 'edit_log_entry') {
+          const { id, ...updates } = args;
+          let found = false;
+          (['night', 'morning', 'evening'] as const).forEach(shiftId => {
+              updatedReport.shifts[shiftId].entries = updatedReport.shifts[shiftId].entries.map((e: LogEntry) => {
+                  if (e.id === id) {
+                      found = true;
+                      
+                      // Handle complex updates like used_parts
+                      let partUpdates = {};
+                      if (updates.used_parts) {
+                          // Re-calculate string fields
+                          const usedPartsData = updates.used_parts.map((up: any) => {
+                              const dbPart = sparePartsDB.find(p => p.name.toLowerCase() === up.name.toLowerCase());
+                              return { 
+                                  partId: dbPart?.id || crypto.randomUUID(), 
+                                  name: up.name, 
+                                  partNumber: dbPart?.partNumber || "N/A", 
+                                  quantity: up.quantity || "1" 
+                              };
+                          });
+                          partUpdates = {
+                              usedParts: usedPartsData,
+                              spareParts: usedPartsData.map((p: any) => `${p.name} (${p.partNumber})`).join('\n'),
+                              quantity: usedPartsData.map((p: any) => p.quantity).join('\n')
+                          };
+                          delete updates.used_parts;
+                      }
+
+                      return { ...e, ...updates, ...partUpdates };
+                  }
+                  return e;
+              });
+          });
+          if (found) {
+              updateReport(updatedReport);
+              return "Entry updated.";
+          }
+          return "Entry ID not found.";
+      }
+
+      if (toolName === 'delete_log_entry') {
+          const { id } = args;
+          (['night', 'morning', 'evening'] as const).forEach(shiftId => {
+              updatedReport.shifts[shiftId].entries = updatedReport.shifts[shiftId].entries.filter((e: LogEntry) => e.id !== id);
+          });
+          updateReport(updatedReport);
+          return "Entry deleted.";
+      }
+
+      return "Tool not recognized.";
   };
 
 
@@ -1064,17 +1175,163 @@ const App: React.FC = () => {
                              </div>
                          )}
 
-                         {/* Appearance Tab Content ... */}
+                         {/* Appearance Tab Content */}
+                         {activeSettingsTab === 'appearance' && (
+                             <div className="space-y-6 animate-in fade-in duration-300">
+                                 <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Palette /> Visual Customization</h2>
+                                 
+                                 {/* Color Theme */}
+                                 <div className="mb-6">
+                                     <label className="block text-sm font-bold text-slate-700 mb-3">Color Theme</label>
+                                     <div className="grid grid-cols-4 gap-3">
+                                         {Object.entries(THEMES).map(([key, theme]: [string, any]) => (
+                                             <button 
+                                                 key={key}
+                                                 onClick={() => setSettings({...settings, theme: key as any})}
+                                                 className={`flex flex-col items-center gap-2 p-2 rounded-xl border-2 transition-all ${settings.theme === key ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-slate-50'}`}
+                                             >
+                                                 <div className="w-full h-8 rounded-lg shadow-sm" style={{ background: `linear-gradient(135deg, ${theme.primary}, ${theme.accent})` }}></div>
+                                                 <span className="text-xs font-medium text-slate-600 capitalize">{theme.name}</span>
+                                             </button>
+                                         ))}
+                                     </div>
+                                 </div>
 
-                         {/* AI Tab Content ... */}
+                                 {/* Typography */}
+                                 <div className="grid grid-cols-2 gap-6 mb-6">
+                                      <div>
+                                          <label className="block text-sm font-bold text-slate-700 mb-2">Font Family</label>
+                                          <select className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white text-black" value={settings.fontFamily} onChange={(e) => setSettings({...settings, fontFamily: e.target.value as any})}>
+                                              {Object.keys(FONT_FAMILIES).map(f => <option key={f} value={f}>{f}</option>)}
+                                          </select>
+                                      </div>
+                                      <div>
+                                          <label className="block text-sm font-bold text-slate-700 mb-2">Font Size</label>
+                                          <div className="flex bg-slate-100 rounded-lg p-1">
+                                              {['small', 'medium', 'large', 'xl'].map(s => (
+                                                  <button 
+                                                      key={s}
+                                                      onClick={() => setSettings({...settings, fontSize: s as any})}
+                                                      className={`flex-1 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${settings.fontSize === s ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                  >
+                                                      {s}
+                                                  </button>
+                                              ))}
+                                          </div>
+                                      </div>
+                                 </div>
+
+                                 {/* View Options */}
+                                 <div className="space-y-3 pt-4 border-t border-slate-100">
+                                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all">
+                                          <span className="text-sm font-medium text-slate-700">Compact Mode (High Density)</span>
+                                          <input type="checkbox" checked={settings.compactMode} onChange={(e) => setSettings({...settings, compactMode: e.target.checked})} className="toggle-checkbox w-5 h-5 text-blue-600 rounded" />
+                                      </label>
+                                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all">
+                                          <span className="text-sm font-medium text-slate-700">Show "Line" Column</span>
+                                          <input type="checkbox" checked={settings.showLineColumn} onChange={(e) => setSettings({...settings, showLineColumn: e.target.checked})} className="w-5 h-5 text-blue-600 rounded" />
+                                      </label>
+                                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all">
+                                          <span className="text-sm font-medium text-slate-700">Show "Total Time" Column</span>
+                                          <input type="checkbox" checked={settings.showTimeColumn} onChange={(e) => setSettings({...settings, showTimeColumn: e.target.checked})} className="w-5 h-5 text-blue-600 rounded" />
+                                      </label>
+                                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all">
+                                          <span className="text-sm font-medium text-slate-700">Hide Empty Rows in Print</span>
+                                          <input type="checkbox" checked={settings.hideEmptyRowsPrint} onChange={(e) => setSettings({...settings, hideEmptyRowsPrint: e.target.checked})} className="w-5 h-5 text-blue-600 rounded" />
+                                      </label>
+                                 </div>
+
+                                 {/* Logo Upload */}
+                                 <div className="pt-6 mt-6 border-t border-slate-200">
+                                     <h3 className="text-sm font-bold text-slate-700 mb-3">Custom Branding</h3>
+                                     <div className="flex items-center gap-4">
+                                         {settings.customLogo ? (
+                                             <div className="relative group">
+                                                 <img src={settings.customLogo} alt="Logo" className="h-12 w-auto object-contain border border-slate-200 rounded p-1" />
+                                                 <button onClick={() => setSettings({...settings, customLogo: ''})} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12}/></button>
+                                             </div>
+                                         ) : <div className="h-12 w-32 bg-slate-100 rounded border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400">No Logo</div>}
+                                         
+                                         <label className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 px-3 py-2 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-colors">
+                                             Upload Logo
+                                             <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                                         </label>
+                                     </div>
+                                 </div>
+                             </div>
+                         )}
+
+                         {/* AI Tab Content */}
                          {activeSettingsTab === 'ai' && (
                             <div className="space-y-6 animate-in fade-in duration-300">
                                 <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Sparkles /> AI Configuration</h2>
                                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
                                     <label className="block text-xs font-bold text-slate-500 mb-1">API Key</label>
-                                    <input type="password" className="w-full border border-slate-300 rounded px-3 py-2 text-sm" value={settings.geminiApiKey || ''} onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})} placeholder="Enter Google Gemini API Key..." />
+                                    <input type="password" className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white" value={settings.geminiApiKey || ''} onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})} placeholder="Enter Google Gemini API Key..." />
                                 </div>
-                                {/* ... Other AI inputs ... */}
+                                
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Model Selection</label>
+                                        <select className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white" value={settings.aiModel} onChange={(e) => setSettings({...settings, aiModel: e.target.value})}>
+                                            <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Efficient)</option>
+                                            <option value="gemini-3-pro-preview">Gemini 3 Pro (Reasoning & Complex Tasks)</option>
+                                            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex justify-between mb-2">
+                                            <label className="text-sm font-bold text-slate-700">Creativity (Temperature)</label>
+                                            <span className="text-xs font-medium text-slate-500">{settings.aiTemperature}</span>
+                                        </div>
+                                        <input type="range" min="0" max="1" step="0.1" value={settings.aiTemperature} onChange={(e) => setSettings({...settings, aiTemperature: parseFloat(e.target.value)})} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                                        <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                                            <span>Precise</span>
+                                            <span>Creative</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Reasoning/Thinking Budget */}
+                                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                        <div className="flex justify-between mb-2">
+                                            <label className="text-sm font-bold text-blue-800 flex items-center gap-2"><Cpu size={14}/> Thinking Budget</label>
+                                            <span className="text-xs font-bold text-blue-600">{settings.aiThinkingBudget > 0 ? `${settings.aiThinkingBudget} Tokens` : 'Disabled'}</span>
+                                        </div>
+                                        <input type="range" min="0" max="8192" step="1024" value={settings.aiThinkingBudget} onChange={(e) => setSettings({...settings, aiThinkingBudget: parseInt(e.target.value)})} className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                                        <p className="text-[10px] text-blue-600/70 mt-2 leading-relaxed">
+                                            Allocates "thinking tokens" for the model to reason before answering. Higher values improve complex logic but increase latency. Only works with specific models (e.g. Gemini 2.5/3.0). Set to 0 to disable.
+                                        </p>
+                                    </div>
+
+                                    <div className="pt-4 border-t border-slate-100">
+                                        <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition-all mb-4">
+                                            <span className="text-sm font-bold text-slate-700">Enable Image Generation</span>
+                                            <input type="checkbox" checked={settings.enableImageGen} onChange={(e) => setSettings({...settings, enableImageGen: e.target.checked})} className="w-5 h-5 text-blue-600 rounded" />
+                                        </label>
+
+                                        {settings.enableImageGen && (
+                                            <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 mb-1">Image Model</label>
+                                                    <select className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white" value={settings.aiImageModel} onChange={(e) => setSettings({...settings, aiImageModel: e.target.value})}>
+                                                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                                                        <option value="imagen-3.0-generate-001">Imagen 3.0</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 mb-1">Aspect Ratio</label>
+                                                    <select className="w-full border border-slate-300 rounded p-1.5 text-xs bg-white" value={settings.aiImageAspectRatio} onChange={(e) => setSettings({...settings, aiImageAspectRatio: e.target.value as any})}>
+                                                        <option value="1:1">Square (1:1)</option>
+                                                        <option value="16:9">Landscape (16:9)</option>
+                                                        <option value="4:3">Standard (4:3)</option>
+                                                        <option value="3:4">Portrait (3:4)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                          )}
 
