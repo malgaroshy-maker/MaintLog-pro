@@ -3,7 +3,7 @@ import ShiftSection from './components/ShiftSection';
 import { AIChat } from './components/AIChat';
 import { AIAnalysisWindow } from './components/AIAnalysisWindow';
 import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings, LogEntry, UsedPart } from './types';
-import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key, Cpu, LineChart } from 'lucide-react';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key, Cpu, LineChart, Layout, Palette, Database, Info } from 'lucide-react';
 
 const INITIAL_ROWS = 5;
 const DEFAULT_MACHINES = ['CFA', 'TP', 'Buffer', 'ACB', 'Palletizer', 'Straw', 'Shrink'];
@@ -82,7 +82,6 @@ const App: React.FC = () => {
 
   // Settings State
   const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('appSettings');
     const defaults = { 
         fontSize: 'medium', 
         theme: 'blue', 
@@ -99,11 +98,24 @@ const App: React.FC = () => {
         hideEmptyRowsPrint: false,
         autoCapitalize: true,
         geminiApiKey: '',
-        aiModel: 'gemini-3-flash-preview'
+        aiModel: 'gemini-3-flash-preview',
+        aiTemperature: 0.7,
+        enableImageGen: true,
+        aiImageModel: 'gemini-2.5-flash-image',
+        aiImageAspectRatio: '4:3',
+        aiThinkingBudget: 0
     } as AppSettings;
-    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+
+    try {
+        const saved = localStorage.getItem('appSettings');
+        return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    } catch (e) {
+        console.error("Failed to parse settings", e);
+        return defaults;
+    }
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'appearance' | 'ai' | 'data'>('general');
 
   // Sections List
   const [sections, setSections] = useState<string[]>(() => {
@@ -793,9 +805,7 @@ const App: React.FC = () => {
       return isoDate; // ISO default
   }
 
-  // --- AI TOOL EXECUTION ---
-  
-  // Helper logic for adding an entry to a report object (Pure function style)
+  // --- AI TOOL EXECUTION (Same as previous) ---
   const addEntryToReportObject = (reportObj: ReportData, args: any, currentSparePartsDB: SparePart[]) => {
       const shiftId = args.shift?.toLowerCase() as 'night'|'morning'|'evening';
       if (!shiftId || !['night','morning','evening'].includes(shiftId)) {
@@ -803,11 +813,9 @@ const App: React.FC = () => {
       }
       
       const shift = reportObj.shifts[shiftId];
-      // Find first empty entry or create new
       const emptyEntry = shift.entries.find(e => !e.machine && !e.description);
       let newEntries = [...shift.entries];
       
-      // Process Used Parts
       let usedPartsData: UsedPart[] = [];
       let sparePartsString = "";
       let quantityString = "";
@@ -887,19 +895,16 @@ const App: React.FC = () => {
                       return updated;
                   });
               } else if (action === 'assign_to_shift') {
-                   // Ensure names exist in DB first (auto-add)
                    setAvailableEngineers(prev => {
                        const newSet = new Set(prev);
                        names.forEach((n: string) => newSet.add(n));
                        const updated = Array.from(newSet);
-                       // Only update localStorage if changes occurred
                        if (updated.length !== prev.length) {
                            localStorage.setItem(`availableEngineers_${currentSection}`, JSON.stringify(updated));
                        }
                        return updated;
                    });
                    
-                   // Now assign to shift
                    const shiftId = shift?.toLowerCase() as 'night'|'morning'|'evening';
                    if (!shiftId || !['night','morning','evening'].includes(shiftId)) {
                        resolve("Error: Invalid shift specified for assignment.");
@@ -922,7 +927,6 @@ const App: React.FC = () => {
                            return newReport;
                        });
                    } else {
-                        // Background update
                         try {
                             const key = getStorageKey(targetDate, currentSection);
                             const storedData = localStorage.getItem(key);
@@ -961,24 +965,13 @@ const App: React.FC = () => {
                       resolve("Error: Name and Part Number required.");
                       return currentDB;
                   }
-
-                  const exists = currentDB.find(p => 
-                      p.name.toLowerCase() === name.toLowerCase() || 
-                      p.partNumber.toLowerCase() === partNumber.toLowerCase()
-                  );
-
+                  const exists = currentDB.find(p => p.name.toLowerCase() === name.toLowerCase() || p.partNumber.toLowerCase() === partNumber.toLowerCase());
                   if (exists) {
                       resolve(`Part '${name}' (${partNumber}) already exists in database.`);
                       return currentDB;
                   }
-
-                  const newPart: SparePart = {
-                      id: crypto.randomUUID(),
-                      name,
-                      partNumber
-                  };
+                  const newPart: SparePart = { id: crypto.randomUUID(), name, partNumber };
                   const newDB = [...currentDB, newPart];
-                  // Note: useEffect handles persistence
                   resolve(`Successfully added part '${name}' to database.`);
                   return newDB;
               });
@@ -987,8 +980,6 @@ const App: React.FC = () => {
 
       if (toolName === 'add_log_entry') {
           const targetDate = args.date || currentDate;
-          
-          // Check if we are modifying the currently viewed report
           if (targetDate === currentDate) {
               return new Promise((resolve) => {
                   setReport(prevReport => {
@@ -1003,16 +994,13 @@ const App: React.FC = () => {
                   });
               });
           } else {
-              // Modifying a background/past report in LocalStorage
               try {
                   const key = getStorageKey(targetDate, currentSection);
                   const storedData = localStorage.getItem(key);
-                  
                   let targetReport: ReportData;
                   if (storedData) {
                       targetReport = JSON.parse(storedData);
                   } else {
-                      // Create fresh report if it doesn't exist
                        targetReport = {
                           section: currentSection,
                           date: targetDate,
@@ -1023,19 +1011,15 @@ const App: React.FC = () => {
                           }
                       };
                   }
-
                   const updatedReport = addEntryToReportObject(targetReport, args, sparePartsDB);
                   localStorage.setItem(key, JSON.stringify(updatedReport));
                   return `Successfully added entry to ${args.shift} shift for machine ${args.machine} on ${targetDate} (saved to database).`;
-
               } catch (e: any) {
                   return `Error updating background report: ${e.message}`;
               }
           }
       } else if (toolName === 'edit_log_entry') {
           const { id, used_parts, ...updates } = args;
-          
-          // Helper to process parts if present
           let processedPartsUpdate = {};
           if (used_parts && Array.isArray(used_parts)) {
                const usedPartsData = used_parts.map((up: any) => {
@@ -1058,22 +1042,16 @@ const App: React.FC = () => {
                    quantity: quantityString
                };
           }
-
           const updateLogic = (prev: ReportData) => {
               let found = false;
               const shifts = ['night', 'morning', 'evening'] as const;
               const newShifts = { ...prev.shifts };
-
               for (const s of shifts) {
                   const entryIndex = newShifts[s].entries.findIndex(e => e.id === id);
                   if (entryIndex !== -1) {
                       found = true;
                       const oldEntry = newShifts[s].entries[entryIndex];
-                      const newEntry = { 
-                          ...oldEntry, 
-                          ...updates, 
-                          ...processedPartsUpdate 
-                      };
+                      const newEntry = { ...oldEntry, ...updates, ...processedPartsUpdate };
                       const newEntries = [...newShifts[s].entries];
                       newEntries[entryIndex] = newEntry;
                       newShifts[s] = { ...newShifts[s], entries: newEntries };
@@ -1083,8 +1061,6 @@ const App: React.FC = () => {
               if (!found) throw new Error("Entry ID not found.");
               return { ...prev, shifts: newShifts };
           };
-
-          // Apply to current
           return new Promise((resolve) => {
               setReport(prev => {
                   try {
@@ -1097,14 +1073,12 @@ const App: React.FC = () => {
                   }
               });
           });
-
       } else if (toolName === 'delete_log_entry') {
           const { id } = args;
           const deleteLogic = (prev: ReportData) => {
               let found = false;
               const shifts = ['night', 'morning', 'evening'] as const;
               const newShifts = { ...prev.shifts };
-
               for (const s of shifts) {
                   const initialLength = newShifts[s].entries.length;
                   const newEntries = newShifts[s].entries.filter(e => e.id !== id);
@@ -1117,8 +1091,6 @@ const App: React.FC = () => {
               if (!found) throw new Error("Entry ID not found.");
               return { ...prev, shifts: newShifts };
           };
-
-          // Apply to current
           return new Promise((resolve) => {
               setReport(prev => {
                   try {
@@ -1131,7 +1103,6 @@ const App: React.FC = () => {
                   }
               });
           });
-
       } else if (toolName === 'change_date') {
           if (args.date) {
               setCurrentDate(args.date);
@@ -1139,7 +1110,6 @@ const App: React.FC = () => {
           }
           return "Error: No date provided.";
       }
-
       return "Unknown tool.";
   };
 
@@ -1212,6 +1182,7 @@ const App: React.FC = () => {
         machines={machines}
         availableEngineers={availableEngineers}
         onToolAction={handleAiToolAction}
+        temperature={settings.aiTemperature}
       />
 
       {/* AI Analysis Window (Large) */}
@@ -1223,6 +1194,11 @@ const App: React.FC = () => {
         sections={sections}
         currentDate={currentDate}
         currentSection={currentSection}
+        temperature={settings.aiTemperature}
+        enableImageGen={settings.enableImageGen}
+        imageModel={settings.aiImageModel}
+        imageAspectRatio={settings.aiImageAspectRatio}
+        thinkingBudget={settings.aiThinkingBudget}
       />
 
       {/* Analytics Modal */}
@@ -1337,227 +1313,376 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Settings Modal */}
+      {/* Improved Settings Modal */}
       {settingsOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-2xl shadow-2xl w-96 p-6 max-h-[90vh] overflow-y-auto transform transition-all flex flex-col">
-             <div className="flex justify-between items-center mb-6 flex-shrink-0">
-                <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800"><Sliders size={20}/> App Settings</h3>
-                <button onClick={() => setSettingsOpen(false)} className="text-slate-400 hover:text-slate-700 transition-colors"><X size={20}/></button>
-             </div>
+          <div className="bg-white rounded-2xl shadow-2xl w-[900px] h-[600px] flex overflow-hidden">
              
-             {/* ... Settings Content ... */}
-             <div className="space-y-6 flex-grow overflow-y-auto pr-2">
+             {/* Sidebar */}
+             <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col p-4">
+                 <h3 className="font-bold text-lg text-slate-800 mb-6 flex items-center gap-2"><Sliders size={20}/> Settings</h3>
                  
-                 {/* Branding */}
-                 <div>
-                   <label className="block text-sm font-bold text-slate-700 mb-2">Company Branding</label>
-                   <div className="flex items-center gap-4">
-                       <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
-                           {settings.customLogo ? (
-                               <img src={settings.customLogo} alt="Logo" className="w-full h-full object-contain" />
-                           ) : (
-                               <span className="text-xs text-slate-400">No Logo</span>
-                           )}
-                       </div>
-                       <label className="flex-1 cursor-pointer bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors text-center">
-                           <Upload size={16} className="inline mr-2" />
-                           Upload New Logo
-                           <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
-                       </label>
-                       {settings.customLogo && (
-                           <button onClick={() => setSettings({...settings, customLogo: ''})} className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
-                               <Trash2 size={16} />
-                           </button>
-                       )}
-                   </div>
+                 <nav className="space-y-1 flex-1">
+                     <button onClick={() => setActiveSettingsTab('general')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeSettingsTab === 'general' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                         <Layout size={16}/> General
+                     </button>
+                     <button onClick={() => setActiveSettingsTab('appearance')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeSettingsTab === 'appearance' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                         <Palette size={16}/> Appearance
+                     </button>
+                     <button onClick={() => setActiveSettingsTab('ai')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeSettingsTab === 'ai' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                         <Sparkles size={16}/> AI Copilot
+                     </button>
+                     <button onClick={() => setActiveSettingsTab('data')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeSettingsTab === 'data' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                         <Database size={16}/> Data Management
+                     </button>
+                 </nav>
+
+                 <div className="mt-auto pt-4 border-t border-slate-200 text-[10px] text-slate-400 text-center">
+                    MaintLog Pro v2.1.0
                  </div>
+             </div>
 
-                 {/* Report Customization */}
-                 <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Report Customization</label>
-                    <div className="space-y-3">
-                        <div>
-                            <label className="text-xs text-slate-500 mb-1 block">Report Title</label>
-                            <div className="relative">
-                                <Type size={14} className="absolute left-2.5 top-2.5 text-slate-400"/>
-                                <input 
-                                    className="w-full border border-slate-300 rounded-lg py-2 pl-8 pr-3 text-sm text-black focus:ring-2 focus:ring-blue-500 outline-none" 
-                                    value={settings.reportTitle}
-                                    onChange={e => setSettings({...settings, reportTitle: e.target.value})}
-                                    placeholder="Daily Maintenance Activity Report"
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="text-xs text-slate-500 mb-1 block">Date Format</label>
-                            <select 
-                                className="w-full border border-slate-300 rounded-lg py-2 px-3 text-sm text-black focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                                value={settings.dateFormat}
-                                onChange={e => setSettings({...settings, dateFormat: e.target.value as any})}
-                            >
-                                <option value="iso">ISO (YYYY-MM-DD)</option>
-                                <option value="uk">UK/EU (DD/MM/YYYY)</option>
-                                <option value="us">US (MM/DD/YYYY)</option>
-                            </select>
-                        </div>
-                    </div>
-                 </div>
+             {/* Content Area */}
+             <div className="flex-1 flex flex-col h-full bg-white">
+                 <div className="flex-1 overflow-y-auto p-8">
+                     <div className="max-w-2xl mx-auto space-y-8">
+                         
+                         {activeSettingsTab === 'general' && (
+                             <div className="space-y-6 animate-in fade-in duration-300">
+                                 <div>
+                                     <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Layout /> General Configuration</h2>
+                                     <p className="text-sm text-slate-500 mb-6">Basic application settings and defaults.</p>
+                                     
+                                     <div className="space-y-4">
+                                         <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Report Title</label>
+                                            <input 
+                                                className="w-full border border-slate-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                value={settings.reportTitle}
+                                                onChange={e => setSettings({...settings, reportTitle: e.target.value})}
+                                            />
+                                         </div>
+                                         <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Date Format</label>
+                                            <select 
+                                                className="w-full border border-slate-300 rounded-lg py-2 px-3 text-sm bg-white text-black focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={settings.dateFormat}
+                                                onChange={e => setSettings({...settings, dateFormat: e.target.value as any})}
+                                            >
+                                                <option value="iso">ISO (YYYY-MM-DD)</option>
+                                                <option value="uk">UK/EU (DD/MM/YYYY)</option>
+                                                <option value="us">US (MM/DD/YYYY)</option>
+                                            </select>
+                                         </div>
+                                         
+                                         <div className="pt-4 border-t border-slate-100">
+                                            <label className="flex items-center gap-3 cursor-pointer py-2">
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={settings.enableSuggestions}
+                                                    onChange={(e) => setSettings({...settings, enableSuggestions: e.target.checked})}
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                />
+                                                <div>
+                                                    <span className="text-sm font-bold text-slate-800 block">Smart Suggestions</span>
+                                                    <span className="text-xs text-slate-500">Enable autocomplete for work descriptions based on history.</span>
+                                                </div>
+                                            </label>
+                                            <label className="flex items-center gap-3 cursor-pointer py-2">
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={settings.enableSpellCheck}
+                                                    onChange={(e) => setSettings({...settings, enableSpellCheck: e.target.checked})}
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                />
+                                                <div>
+                                                    <span className="text-sm font-bold text-slate-800 block">Browser Spell Check</span>
+                                                    <span className="text-xs text-slate-500">Highlight spelling errors in text fields.</span>
+                                                </div>
+                                            </label>
+                                            <label className="flex items-center gap-3 cursor-pointer py-2">
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={settings.confirmDeleteRow}
+                                                    onChange={(e) => setSettings({...settings, confirmDeleteRow: e.target.checked})}
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                />
+                                                <div>
+                                                    <span className="text-sm font-bold text-slate-800 block">Confirm Row Deletion</span>
+                                                    <span className="text-xs text-slate-500">Ask for confirmation before deleting a log entry.</span>
+                                                </div>
+                                            </label>
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>
+                         )}
 
-                 {/* Typography Settings (Optimized Font Size Selector) */}
-                 <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Typography</label>
-                    <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
-                        {(['small', 'medium', 'large', 'xl'] as const).map(size => (
-                           <button 
-                              key={size}
-                              onClick={() => setSettings({...settings, fontSize: size})}
-                              className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all ${settings.fontSize === size ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-                           >
-                              {size === 'small' ? 'A' : size === 'medium' ? 'Aa' : size === 'large' ? 'AAA' : 'XL'}
-                           </button>
-                        ))}
-                    </div>
-                 </div>
+                         {activeSettingsTab === 'appearance' && (
+                             <div className="space-y-6 animate-in fade-in duration-300">
+                                 <div>
+                                     <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Palette /> Look & Feel</h2>
+                                     
+                                     <div className="mb-6">
+                                       <label className="block text-sm font-bold text-slate-700 mb-2">Company Branding</label>
+                                       <div className="flex items-center gap-4">
+                                           <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                                               {settings.customLogo ? (
+                                                   <img src={settings.customLogo} alt="Logo" className="w-full h-full object-contain" />
+                                               ) : (
+                                                   <span className="text-xs text-slate-400">No Logo</span>
+                                               )}
+                                           </div>
+                                           <label className="cursor-pointer bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                                               <Upload size={16} className="inline mr-2" />
+                                               Upload
+                                               <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                                           </label>
+                                           {settings.customLogo && (
+                                               <button onClick={() => setSettings({...settings, customLogo: ''})} className="text-red-500 hover:text-red-700 text-sm">Remove</button>
+                                           )}
+                                       </div>
+                                     </div>
 
-                 <div className="space-y-3">
-                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Display Options</div>
-                   
-                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                      <input 
-                        type="checkbox"
-                        checked={settings.enableSuggestions}
-                        onChange={(e) => setSettings({...settings, enableSuggestions: e.target.checked})}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <div>
-                        <span className="text-sm font-bold text-slate-800 block">Smart Suggestions</span>
-                        <span className="text-xs text-slate-500">Enable autocomplete for work descriptions.</span>
-                      </div>
-                   </label>
+                                     <div className="mb-6">
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Color Theme</label>
+                                        <div className="flex gap-2">
+                                            {Object.entries(THEMES).map(([key, val]) => (
+                                                <button
+                                                    key={key}
+                                                    onClick={() => setSettings({...settings, theme: key as any})}
+                                                    className={`w-8 h-8 rounded-full border-2 ${settings.theme === key ? 'border-slate-800 scale-110' : 'border-transparent hover:scale-105'} transition-all`}
+                                                    style={{ backgroundColor: val.primary }}
+                                                    title={val.name}
+                                                />
+                                            ))}
+                                        </div>
+                                     </div>
+                                     
+                                     <div className="mb-6">
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Font Size</label>
+                                        <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
+                                            {(['small', 'medium', 'large', 'xl'] as const).map(size => (
+                                               <button 
+                                                  key={size}
+                                                  onClick={() => setSettings({...settings, fontSize: size})}
+                                                  className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all ${settings.fontSize === size ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                               >
+                                                  {size === 'small' ? 'A' : size === 'medium' ? 'Aa' : size === 'large' ? 'AAA' : 'XL'}
+                                               </button>
+                                            ))}
+                                        </div>
+                                     </div>
 
-                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                      <input 
-                        type="checkbox"
-                        checked={settings.compactMode}
-                        onChange={(e) => setSettings({...settings, compactMode: e.target.checked})}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <div>
-                        <span className="text-sm font-bold text-slate-800 block">Compact Row Mode</span>
-                        <span className="text-xs text-slate-500">Reduces vertical spacing for printing.</span>
-                      </div>
-                   </label>
+                                     <div className="pt-4 border-t border-slate-100 space-y-2">
+                                        <label className="flex items-center justify-between py-2">
+                                            <span className="text-sm font-bold text-slate-800">Compact Mode</span>
+                                            <input type="checkbox" checked={settings.compactMode} onChange={(e) => setSettings({...settings, compactMode: e.target.checked})} className="toggle" />
+                                        </label>
+                                        <label className="flex items-center justify-between py-2">
+                                            <span className="text-sm font-bold text-slate-800">Show "Line" Column</span>
+                                            <input type="checkbox" checked={settings.showLineColumn} onChange={(e) => setSettings({...settings, showLineColumn: e.target.checked})} className="toggle" />
+                                        </label>
+                                        <label className="flex items-center justify-between py-2">
+                                            <span className="text-sm font-bold text-slate-800">Show "Time" Column</span>
+                                            <input type="checkbox" checked={settings.showTimeColumn} onChange={(e) => setSettings({...settings, showTimeColumn: e.target.checked})} className="toggle" />
+                                        </label>
+                                        <label className="flex items-center justify-between py-2">
+                                            <span className="text-sm font-bold text-slate-800">Hide Empty Rows on Print</span>
+                                            <input type="checkbox" checked={settings.hideEmptyRowsPrint} onChange={(e) => setSettings({...settings, hideEmptyRowsPrint: e.target.checked})} className="toggle" />
+                                        </label>
+                                     </div>
+                                 </div>
+                             </div>
+                         )}
 
-                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                      <input 
-                        type="checkbox"
-                        checked={settings.showLineColumn ?? true}
-                        onChange={(e) => setSettings({...settings, showLineColumn: e.target.checked})}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <div>
-                        <span className="text-sm font-bold text-slate-800 block">Show "Line" Column</span>
-                        <span className="text-xs text-slate-500">Toggle the visibility of line selection.</span>
-                      </div>
-                   </label>
+                         {activeSettingsTab === 'ai' && (
+                             <div className="space-y-6 animate-in fade-in duration-300">
+                                 <div>
+                                     <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Sparkles /> AI Configuration</h2>
+                                     <p className="text-sm text-slate-500 mb-6">Configure the Google Gemini integration for smart features.</p>
 
-                   <label className="flex items-center gap-3 cursor-pointer bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                      <input 
-                        type="checkbox"
-                        checked={settings.hideEmptyRowsPrint}
-                        onChange={(e) => setSettings({...settings, hideEmptyRowsPrint: e.target.checked})}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <div>
-                        <span className="text-sm font-bold text-slate-800 block">Hide Empty Rows (Print)</span>
-                        <span className="text-xs text-slate-500">Only print rows with data to save paper.</span>
-                      </div>
-                   </label>
-                 </div>
+                                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">API Key</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="password"
+                                                placeholder="Enter Google Gemini API Key..."
+                                                className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={settings.geminiApiKey || ''}
+                                                onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})}
+                                            />
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-2">Get your key from <a href="https://aistudio.google.com/" target="_blank" className="text-blue-500 hover:underline">Google AI Studio</a>.</p>
+                                     </div>
 
-                 {/* Data Management Section */}
-                 <div className="space-y-3 pt-4 border-t border-slate-200">
-                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Data Management</div>
+                                     <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Text Model Selection</label>
+                                            <select 
+                                                className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white text-black focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={settings.aiModel}
+                                                onChange={(e) => setSettings({...settings, aiModel: e.target.value})}
+                                            >
+                                                <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Capable)</option>
+                                                <option value="gemini-3-pro-preview">Gemini 3 Pro (Complex Reasoning)</option>
+                                                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Stable)</option>
+                                            </select>
+                                        </div>
 
-                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2"><Key size={16}/> AI Configuration</h4>
-                        
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">API Key</label>
-                            <input 
-                                type="password"
-                                placeholder="Enter Google Gemini API Key..."
-                                className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                value={settings.geminiApiKey || ''}
-                                onChange={(e) => setSettings({...settings, geminiApiKey: e.target.value})}
-                            />
-                        </div>
+                                        {(settings.aiModel.includes('gemini-2.5') || settings.aiModel.includes('gemini-3')) && (
+                                            <div>
+                                                <label className="block text-sm font-bold text-slate-700 mb-2 flex justify-between">
+                                                    <span>Thinking Budget (Reasoning Tokens)</span>
+                                                    <span className="text-blue-600">{settings.aiThinkingBudget}</span>
+                                                </label>
+                                                <input 
+                                                    type="range" 
+                                                    min="0" 
+                                                    max="8192" 
+                                                    step="128"
+                                                    value={settings.aiThinkingBudget}
+                                                    onChange={(e) => setSettings({...settings, aiThinkingBudget: parseInt(e.target.value)})}
+                                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                                                />
+                                                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                                                    <span>0 (Disabled)</span>
+                                                    <span>2048</span>
+                                                    <span>8192 (Max)</span>
+                                                </div>
+                                            </div>
+                                        )}
 
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-2"><Cpu size={12}/> Model Selection</label>
-                            <select 
-                                className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                value={settings.aiModel}
-                                onChange={(e) => setSettings({...settings, aiModel: e.target.value})}
-                            >
-                                <option value="gemini-3-flash-preview">Gemini 3 Flash (Recommended)</option>
-                                <option value="gemini-3-pro-preview">Gemini 3 Pro (High Intelligence)</option>
-                                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Stable)</option>
-                            </select>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                                Select "Pro" for complex reasoning or "Flash" for speed. If you encounter 429 Errors (Quota), switch models or check billing.
-                            </p>
-                        </div>
-                   </div>
-                   
-                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                       <h4 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-2"><HardDrive size={16}/> Backup & Restore</h4>
-                       <p className="text-xs text-slate-500 mb-4">Export full database to a JSON file for safe keeping or transfer.</p>
-                       <div className="flex gap-2">
-                           <button onClick={handleBackup} className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2">
-                               <Download size={14}/> Backup
-                           </button>
-                           <label className="flex-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer">
-                               <Upload size={14}/> Restore
-                               <input type="file" accept=".json" onChange={handleRestore} className="hidden" />
-                           </label>
-                       </div>
-                   </div>
-                 </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2 flex justify-between">
+                                                <span>Creativity (Temperature)</span>
+                                                <span className="text-blue-600">{settings.aiTemperature}</span>
+                                            </label>
+                                            <input 
+                                                type="range" 
+                                                min="0" 
+                                                max="1" 
+                                                step="0.1"
+                                                value={settings.aiTemperature}
+                                                onChange={(e) => setSettings({...settings, aiTemperature: parseFloat(e.target.value)})}
+                                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                                            />
+                                            <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                                                <span>Precise</span>
+                                                <span>Balanced</span>
+                                                <span>Creative</span>
+                                            </div>
+                                        </div>
 
-                 {/* Advanced Data Export (Moved to Bottom) */}
-                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mt-6">
-                     <label className="block text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
-                         <Download size={16}/> Advanced Data Export
-                     </label>
-                     <p className="text-xs text-blue-700 mb-3">Export optimized CSV for AI analysis over a date range.</p>
-                     <div className="flex gap-2 mb-2">
-                         <div className="flex-1">
-                             <label className="text-[10px] uppercase font-bold text-blue-500">Start</label>
-                             <input type="date" value={exportStart} onChange={e => setExportStart(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
-                         </div>
-                         <div className="flex-1">
-                             <label className="text-[10px] uppercase font-bold text-blue-500">End</label>
-                             <input type="date" value={exportEnd} onChange={e => setExportEnd(e.target.value)} className="w-full text-xs p-1.5 rounded border border-blue-200" />
-                         </div>
+                                        <div className="pt-4 border-t border-slate-100">
+                                            <label className="flex items-center justify-between py-2 cursor-pointer">
+                                                <div>
+                                                    <span className="text-sm font-bold text-slate-800 block">Enable Image Generation</span>
+                                                    <span className="text-xs text-slate-500">Allow AI to generate images. Consumes more quota.</span>
+                                                </div>
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={settings.enableImageGen} 
+                                                    onChange={(e) => setSettings({...settings, enableImageGen: e.target.checked})} 
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                />
+                                            </label>
+                                        </div>
+
+                                        {settings.enableImageGen && (
+                                            <div className="pl-4 space-y-4 border-l-2 border-indigo-100">
+                                                <div>
+                                                    <label className="block text-sm font-bold text-slate-700 mb-2">Image Generation Model</label>
+                                                    <select 
+                                                        className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white text-black focus:ring-2 focus:ring-blue-500 outline-none"
+                                                        value={settings.aiImageModel}
+                                                        onChange={(e) => setSettings({...settings, aiImageModel: e.target.value})}
+                                                    >
+                                                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image (Fast)</option>
+                                                        <option value="gemini-3-pro-image-preview">Gemini 3 Pro Image (High Quality)</option>
+                                                        <option value="imagen-4.0-generate-001">Imagen 4.0 (Photorealistic)</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-bold text-slate-700 mb-2">Image Aspect Ratio</label>
+                                                    <select 
+                                                        className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white text-black focus:ring-2 focus:ring-blue-500 outline-none"
+                                                        value={settings.aiImageAspectRatio}
+                                                        onChange={(e) => setSettings({...settings, aiImageAspectRatio: e.target.value as any})}
+                                                    >
+                                                        <option value="1:1">Square (1:1)</option>
+                                                        <option value="4:3">Landscape (4:3)</option>
+                                                        <option value="3:4">Portrait (3:4)</option>
+                                                        <option value="16:9">Widescreen (16:9)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        )}
+                                     </div>
+                                 </div>
+                             </div>
+                         )}
+
+                         {activeSettingsTab === 'data' && (
+                             <div className="space-y-6 animate-in fade-in duration-300">
+                                 <div>
+                                     <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Database /> Data Management</h2>
+                                     
+                                     <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6 text-center">
+                                         <p className="text-sm text-slate-600 mb-4">Export the full application database to a JSON file for backup or transfer to another device.</p>
+                                         <div className="flex gap-4 justify-center">
+                                            <button onClick={handleBackup} className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-bold shadow-sm flex items-center gap-2">
+                                                <Download size={16}/> Backup to JSON
+                                            </button>
+                                            <label className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-bold shadow-sm flex items-center gap-2 cursor-pointer">
+                                                <Upload size={16}/> Restore from JSON
+                                                <input type="file" accept=".json" onChange={handleRestore} className="hidden" />
+                                            </label>
+                                         </div>
+                                     </div>
+
+                                     <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 mb-6">
+                                         <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2"><FileSpreadsheet size={16}/> Bulk CSV Export</h4>
+                                         <p className="text-xs text-blue-600 mb-4">Export data across a date range for external analysis.</p>
+                                         <div className="flex gap-4 items-end mb-4">
+                                             <div className="flex-1">
+                                                 <label className="text-[10px] uppercase font-bold text-blue-500 block mb-1">Start Date</label>
+                                                 <input type="date" value={exportStart} onChange={e => setExportStart(e.target.value)} className="w-full text-sm p-2 rounded border border-blue-200" />
+                                             </div>
+                                             <div className="flex-1">
+                                                 <label className="text-[10px] uppercase font-bold text-blue-500 block mb-1">End Date</label>
+                                                 <input type="date" value={exportEnd} onChange={e => setExportEnd(e.target.value)} className="w-full text-sm p-2 rounded border border-blue-200" />
+                                             </div>
+                                         </div>
+                                         <button 
+                                             onClick={() => generateAIExport(exportStart, exportEnd)}
+                                             className="w-full bg-blue-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                                         >
+                                             Download CSV
+                                         </button>
+                                     </div>
+
+                                     <div className="pt-6 border-t border-slate-200">
+                                         <button onClick={handleClear} className="text-red-500 hover:text-red-700 text-sm font-medium flex items-center gap-2">
+                                             <Trash2 size={16}/> Clear Current Report Form
+                                         </button>
+                                     </div>
+                                 </div>
+                             </div>
+                         )}
+
                      </div>
+                 </div>
+                 
+                 {/* Footer */}
+                 <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
                      <button 
-                         onClick={() => generateAIExport(exportStart, exportEnd)}
-                         className="w-full bg-blue-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                       onClick={() => setSettingsOpen(false)}
+                       className="bg-slate-800 text-white px-6 py-2 rounded-lg hover:bg-slate-700 font-medium transition-colors shadow-lg"
                      >
-                         Download Data Range CSV
+                       Close Settings
                      </button>
                  </div>
-             </div>
-             
-             <div className="flex justify-end pt-4 border-t mt-6 flex-shrink-0">
-                <button 
-                  onClick={() => setSettingsOpen(false)}
-                  className="bg-slate-800 text-white px-6 py-2 rounded-lg hover:bg-slate-700 font-medium transition-colors"
-                >
-                  Done
-                </button>
              </div>
           </div>
         </div>
@@ -1666,7 +1791,7 @@ const App: React.FC = () => {
                     </button>
                 </div>
                 <div className="h-6 w-px bg-slate-200 mx-2"></div>
-                <button onClick={() => setSettingsOpen(true)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors" title="Settings">
+                <button onClick={() => { setSettingsOpen(true); setActiveSettingsTab('general'); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors" title="Settings">
                   <Settings size={20} />
                 </button>
             </div>

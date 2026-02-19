@@ -64,6 +64,11 @@ export interface AppSettings {
   autoCapitalize: boolean;
   geminiApiKey?: string;
   aiModel: string;
+  aiTemperature: number;
+  enableImageGen: boolean;
+  aiImageModel: string;
+  aiImageAspectRatio: '1:1' | '3:4' | '4:3' | '16:9' | '9:16';
+  aiThinkingBudget: number;
 }
 
 export const INITIAL_ENTRY: LogEntry = {

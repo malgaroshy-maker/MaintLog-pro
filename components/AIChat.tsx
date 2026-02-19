@@ -13,6 +13,7 @@ interface AIChatProps {
   machines: string[];
   availableEngineers: string[];
   onToolAction: (toolName: string, args: any) => Promise<any>;
+  temperature: number;
 }
 
 interface Message {
@@ -28,7 +29,7 @@ interface Attachment {
   base64Data: string; // Raw base64 for API
 }
 
-export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, report, sparePartsDB, machines, availableEngineers, onToolAction }) => {
+export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, report, sparePartsDB, machines, availableEngineers, onToolAction, temperature }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
     { role: 'model', content: 'Hello! I am your MaintLog Assistant. I can analyze your report, add/edit entries, manage spare parts, or assign engineers. How can I help?' }
@@ -333,7 +334,8 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
             contents: [...chatHistory, { role: 'user', parts: currentUserContentParts }],
             config: {
                 systemInstruction: systemPrompt,
-                tools: [{ functionDeclarations: [addLogEntryTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
+                tools: [{ functionDeclarations: [addLogEntryTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }],
+                temperature: temperature
             }
         });
         
@@ -382,8 +384,9 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
                         { role: 'function', parts: toolResponseParts }
                     ],
                     config: {
-                    systemInstruction: systemPrompt,
-                    tools: [{ functionDeclarations: [addLogEntryTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
+                        systemInstruction: systemPrompt,
+                        temperature: temperature,
+                        tools: [{ functionDeclarations: [addLogEntryTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
                     }
             });
             
@@ -406,8 +409,11 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
         setMessages(prev => [...prev, { role: 'model', content: responseText }]);
 
     } catch (error: any) {
-        console.error("AI Error:", error);
-        setMessages(prev => [...prev, { role: 'model', content: `Error: ${error.message || "Something went wrong."}`, isError: true }]);
+        let errorMsg = `Error: ${error.message}`;
+        if (errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("RESOURCE_EXHAUSTED")) {
+            errorMsg = "⚠️ AI Quota Exceeded. You have hit the limit for the free tier. Please wait a while or switch to 'Gemini 2.0 Flash' in Settings which may have higher availability.";
+        }
+        setMessages(prev => [...prev, { role: 'model', content: errorMsg, isError: true }]);
     } finally {
         setIsLoading(false);
     }

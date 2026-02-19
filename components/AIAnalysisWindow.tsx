@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Send, Sparkles, Bot, User, Loader2, BarChart3, Table as TableIcon, FileText, PieChart, LineChart, RefreshCw, Download, Image as ImageIcon } from 'lucide-react';
-import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
+import type { FunctionDeclaration } from "@google/genai";
 import { ReportData } from '../types';
 
 interface AIAnalysisWindowProps {
@@ -11,6 +12,11 @@ interface AIAnalysisWindowProps {
   sections: string[];
   currentDate: string;
   currentSection: string;
+  temperature: number;
+  enableImageGen: boolean;
+  imageModel: string;
+  imageAspectRatio: string;
+  thinkingBudget: number;
 }
 
 interface AnalysisMessage {
@@ -21,10 +27,13 @@ interface AnalysisMessage {
   imageData?: string; // Base64 string for generated images
 }
 
-export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onClose, apiKey, model, sections, currentDate, currentSection }) => {
+export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ 
+    isOpen, onClose, apiKey, model, sections, currentDate, currentSection, 
+    temperature, enableImageGen, imageModel, imageAspectRatio, thinkingBudget 
+}) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<AnalysisMessage[]>([
-    { role: 'model', content: 'I am your Data Analyst. I can scan your logs, generate charts, and summarize performance. You can also ask me to "generate an image" to visualize maintenance scenarios.' }
+    { role: 'model', content: `I am your Data Analyst. I can scan your logs, generate charts, and summarize performance.${enableImageGen ? ' You can also ask me to "generate an image" to visualize maintenance scenarios.' : ''}` }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -42,7 +51,6 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
   const parseDuration = (str: string): number => {
       if (!str) return 0;
       let total = 0;
-      // Handle cases like "1h 30m" or "90m" or "1h+30m"
       const parts = str.toLowerCase().split(/[+\s]+/); 
       parts.forEach(p => {
          if (!p) return;
@@ -51,7 +59,6 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
          const m = p.match(/(\d+)m/);
          if(h) mins += parseInt(h[1]) * 60;
          if(m) mins += parseInt(m[1]);
-         // Fallback for just numbers
          if(!h && !m) {
              const val = parseInt(p.replace(/[^0-9]/g, ''));
              if(!isNaN(val)) mins += val;
@@ -63,28 +70,18 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
 
   const getAllData = (startDate?: string, endDate?: string, section?: string) => {
       const allData: any[] = [];
-      
-      // Defaults:
-      // Start: Beginning of time if not specified
-      // End: Far future if not specified (Allows looking at "future" logs relative to system time)
       const effectiveStart = startDate || "1970-01-01";
       const effectiveEnd = endDate || "2099-12-31";
 
-      // Use direct string comparison for YYYY-MM-DD dates
       for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith('maintlog_report_')) {
               try {
                   const report: ReportData = JSON.parse(localStorage.getItem(key)!);
-                  
-                  // Filter by Date Strings
                   if (report.date < effectiveStart) continue;
                   if (report.date > effectiveEnd) continue;
-
-                  // Filter by Section
                   if (section && report.section !== section) continue;
 
-                  // Flatten entries
                   (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
                       const shift = report.shifts[shiftKey];
                       shift.entries.forEach(entry => {
@@ -97,7 +94,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                                   line: entry.line,
                                   description: entry.description,
                                   totalTimeStr: entry.totalTime,
-                                  durationMinutes: parseDuration(entry.totalTime), // Pre-calculated for AI
+                                  durationMinutes: parseDuration(entry.totalTime),
                                   spareParts: entry.spareParts,
                                   qty: entry.quantity,
                                   engineers: shift.engineers
@@ -127,24 +124,22 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
       try {
           const ai = new GoogleGenAI({ apiKey });
 
-          // Tool: Get Data
           const getDataTool: FunctionDeclaration = {
               name: "get_maintenance_data",
-              description: "Retrieves maintenance log data from the database. Use this to perform analysis, count occurrences, or summarize activities.",
+              description: "Retrieves maintenance log data. Use this to perform analysis, count occurrences, or summarize activities.",
               parameters: {
                   type: Type.OBJECT,
                   properties: {
-                      startDate: { type: Type.STRING, description: "Start date (YYYY-MM-DD). If user says 'today', use the 'Current App Date'." },
+                      startDate: { type: Type.STRING, description: "Start date (YYYY-MM-DD)." },
                       endDate: { type: Type.STRING, description: "End date (YYYY-MM-DD)." },
-                      section: { type: Type.STRING, description: "Optional section name to filter by. Defaults to 'Current App Section' if not specified." }
+                      section: { type: Type.STRING, description: "Optional section name." }
                   }
               }
           };
 
-          // Tool: Generate Image
           const generateImageTool: FunctionDeclaration = {
               name: "generate_image",
-              description: "Generates an AI image based on a detailed text description. Use this when the user asks to create, draw, or generate an image/visualization (that is NOT a chart).",
+              description: "Generates an AI image based on a detailed text description.",
               parameters: {
                   type: Type.OBJECT,
                   properties: {
@@ -154,26 +149,25 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               }
           };
 
+          const toolsList: any[] = [getDataTool];
+          if (enableImageGen) {
+              toolsList.push(generateImageTool);
+          }
+
           const systemPrompt = `You are an expert Industrial Data Analyst for MaintLog Pro.
           
           SYSTEM CONTEXT:
-          - Current App Date: ${currentDate} (If user asks for "today", use this date).
+          - Current App Date: ${currentDate}.
           - Current App Section: ${currentSection}
           
           Capabilities:
           1. Retrieve data using 'get_maintenance_data'.
-          2. Analyze the data to answer user queries.
+          2. Analyze the data.
           3. GENERATE CHARTS/TABLES (Output JSON).
-          4. GENERATE IMAGES (Call 'generate_image').
+          ${enableImageGen ? '4. GENERATE IMAGES (Call \'generate_image\').' : ''}
 
-          RULES FOR IMAGE GENERATION:
-          - If the user asks to "generate an image", "draw", or "visualize" something artistically (e.g., "draw the broken gear", "show me a concept of improved safety"), use the 'generate_image' tool.
-          - Construct a detailed, industrial-style prompt for the image generator based on the context of the maintenance logs if applicable.
-
-          RESPONSE FORMAT FOR CHARTS (NOT IMAGES):
-          If the user asks for a chart, graph, or table, you MUST output a standard JSON block at the end of your text response.
-          
-          The JSON must follow this EXACT schema:
+          RESPONSE FORMAT FOR CHARTS:
+          If the user asks for a chart or table, output a standard JSON block at the end of your response:
           \`\`\`json
           {
             "visualization": {
@@ -183,16 +177,6 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
             }
           }
           \`\`\`
-
-          Data Structures for "data":
-          - For "bar": { "labels": ["Label A", "Label B"], "values": [10, 5], "color": "#3b82f6" }
-          - For "pie": { "segments": [{ "name": "A", "value": 30, "color": "#475569" }, { "name": "B", "value": 50, "color": "#eab308" }] }
-          - For "table": { "headers": ["Date", "Machine", "Desc"], "rows": [["2024-01-01", "CFA", "Jam"], ["2024-01-02", "TP", "Sensor"]] }
-          
-          General Rules:
-          - If the tool returns empty data, tell the user no records were found.
-          - Use the 'durationMinutes' field in the data for time calculations (downtime).
-          - Keep text explanations concise.
           `;
 
           const chatHistory = messages.map(m => ({
@@ -200,13 +184,21 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               parts: [{ text: m.content }]
           }));
 
+          const config: any = {
+              systemInstruction: systemPrompt,
+              tools: [{ functionDeclarations: toolsList }],
+              temperature: temperature,
+          };
+
+          // Apply thinking budget if > 0 and using supported model
+          if (thinkingBudget > 0 && (model.includes('gemini-2.5') || model.includes('gemini-3'))) {
+              config.thinkingConfig = { thinkingBudget: thinkingBudget };
+          }
+
           const result = await ai.models.generateContent({
               model: model || 'gemini-3-flash-preview',
               contents: [...chatHistory, { role: 'user', parts: [{ text: userMsg }] }],
-              config: {
-                  systemInstruction: systemPrompt,
-                  tools: [{ functionDeclarations: [getDataTool, generateImageTool] }]
-              }
+              config: config
           });
 
           // Handle Tool Calls
@@ -219,15 +211,12 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
           if (functionCalls && functionCalls.length > 0) {
               const toolResults = await Promise.all(functionCalls.map(async (call) => {
                   if (call.name === 'get_maintenance_data') {
-                      // Apply defaults from context if arguments are missing, but let getAllData handle wide ranges if dates are omitted
                       const start = call.args.startDate;
                       const end = call.args.endDate;
-                      const sec = call.args.section || currentSection; // Default to current section if not specified
+                      const sec = call.args.section || currentSection;
                       
                       const data = getAllData(start, end, sec);
                       const jsonResult = JSON.stringify(data);
-                      
-                      // Limit context if too large
                       const truncatedResult = jsonResult.length > 20000 ? jsonResult.substring(0, 20000) + "...(truncated)" : jsonResult;
                       return {
                           functionResponse: {
@@ -240,22 +229,39 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                   if (call.name === 'generate_image') {
                       try {
                           const prompt = call.args.prompt as string;
-                          const imgResponse = await ai.models.generateContent({
-                                model: 'gemini-2.5-flash-image',
-                                contents: { parts: [{ text: prompt }] },
-                                config: {
-                                    imageConfig: {
-                                        aspectRatio: "4:3"
-                                    }
-                                }
-                          });
+                          const selectedImageModel = imageModel || 'gemini-2.5-flash-image';
                           
-                          // Extract image data
-                          if (imgResponse.candidates && imgResponse.candidates.length > 0) {
-                              for (const part of imgResponse.candidates[0].content.parts) {
-                                  if (part.inlineData) {
-                                      generatedImage = part.inlineData.data;
-                                      break;
+                          if (selectedImageModel.includes('imagen')) {
+                              // Use generateImages for Imagen models
+                              const imgResponse = await ai.models.generateImages({
+                                  model: selectedImageModel,
+                                  prompt: prompt,
+                                  config: {
+                                      numberOfImages: 1,
+                                      aspectRatio: imageAspectRatio || "1:1",
+                                      outputMimeType: 'image/jpeg'
+                                  }
+                              });
+                              if (imgResponse.generatedImages && imgResponse.generatedImages.length > 0) {
+                                  generatedImage = imgResponse.generatedImages[0].image.imageBytes;
+                              }
+                          } else {
+                              // Use generateContent for Gemini models (Nano Banana series)
+                              const imgResponse = await ai.models.generateContent({
+                                    model: selectedImageModel,
+                                    contents: { parts: [{ text: prompt }] },
+                                    config: {
+                                        imageConfig: {
+                                            aspectRatio: imageAspectRatio || "1:1"
+                                        }
+                                    }
+                              });
+                              if (imgResponse.candidates && imgResponse.candidates.length > 0) {
+                                  for (const part of imgResponse.candidates[0].content.parts) {
+                                      if (part.inlineData) {
+                                          generatedImage = part.inlineData.data;
+                                          break;
+                                      }
                                   }
                               }
                           }
@@ -296,7 +302,6 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
           }
 
           // Robust JSON Parsing for Charts
-          // Look for code block with json or just braces
           const jsonMatch = finalResponseText.match(/```json\s*([\s\S]*?)\s*```/i) || finalResponseText.match(/```\s*([\s\S]*?)\s*```/i);
           
           if (jsonMatch) {
@@ -311,7 +316,6 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                       } else if (viz.type === 'table') {
                           tableData = viz.data;
                       }
-                      // Clean up the text to remove the raw JSON
                       finalResponseText = finalResponseText.replace(jsonMatch[0], '').trim();
                   }
               } catch (e) {
@@ -319,7 +323,6 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
               }
           }
 
-          // If text is empty after stripping JSON, add a placeholder so the bubble isn't empty
           if (!finalResponseText && (chartData || tableData || generatedImage)) {
               finalResponseText = "Here is the visualization based on your request.";
           }
@@ -333,7 +336,11 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
           }]);
 
       } catch (error: any) {
-          setMessages(prev => [...prev, { role: 'model', content: `Error: ${error.message}` }]);
+          let errorMsg = `Error: ${error.message}`;
+          if (errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("RESOURCE_EXHAUSTED")) {
+              errorMsg = "⚠️ AI Quota Exceeded. You have hit the limit for the free tier. Please wait a while or switch to 'Gemini 2.0 Flash' in Settings which may have higher availability.";
+          }
+          setMessages(prev => [...prev, { role: 'model', content: errorMsg }]);
       } finally {
           setIsLoading(false);
       }
@@ -344,7 +351,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
       if (!data || !data.data || !data.data.values || data.data.values.length === 0) return <div className="text-center text-gray-400 p-4">No data for chart</div>;
       const values = data.data.values;
       const labels = data.data.labels;
-      const max = Math.max(...values, 1); // Avoid div by zero
+      const max = Math.max(...values, 1);
       
       return (
           <div className="bg-white p-4 rounded-lg border border-slate-200 mt-4 shadow-sm w-full">
@@ -361,14 +368,13 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                       </div>
                   ))}
               </div>
-              <div className="h-8"></div> {/* Spacer for rotated labels */}
+              <div className="h-8"></div>
           </div>
       );
   };
 
   const PieChartComp = ({ data }: { data: any }) => {
       if (!data || !data.data) return null;
-      // data.data is the array of segments due to parsing logic above
       const segments = data.data; 
       const total = segments.reduce((acc: number, item: any) => acc + item.value, 0);
       let currentDeg = 0;
@@ -469,7 +475,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                     <div className="relative">
                         <input 
                             className="w-full bg-slate-100 border-transparent focus:bg-white border focus:border-indigo-300 rounded-lg px-3 py-2.5 text-xs outline-none pr-10 text-black placeholder-slate-400" 
-                            placeholder="Ask for analysis (e.g., 'Chart downtime by machine')"
+                            placeholder="Ask for analysis..."
                             value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && handleSend()}
@@ -500,9 +506,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                 <div className="flex-1 overflow-y-auto p-6 relative flex flex-col">
                     {messages.length > 1 ? (
                         <div className="space-y-6 w-full max-w-4xl mx-auto">
-                            {/* Render latest chart/table from the last AI message that has one */}
                             {(() => {
-                                // Find last message with data
                                 const lastDataMsg = [...messages].reverse().find(m => m.chartData || m.tableData || m.imageData);
                                 if (!lastDataMsg) return (
                                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 mt-20">
@@ -553,9 +557,11 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ isOpen, onCl
                                 <button onClick={() => { setInput("Show a chart of the top 5 machines by interventions"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
                                     📊 Top Machines Chart
                                 </button>
-                                <button onClick={() => { setInput("Generate an image of a futuristic factory line"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
-                                    🎨 Generate Image
-                                </button>
+                                {enableImageGen && (
+                                    <button onClick={() => { setInput("Generate an image of a futuristic factory line"); handleSend(); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:border-indigo-300 hover:text-indigo-600 transition-all text-slate-600 font-medium shadow-sm">
+                                        🎨 Generate Image
+                                    </button>
+                                )}
                             </div>
                         </div>
                     )}
