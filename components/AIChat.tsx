@@ -117,7 +117,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
         // Define Tools
         const addLogEntriesTool: FunctionDeclaration = {
             name: "add_log_entries",
-            description: "Adds one or more maintenance log entry rows. Use this to record work done.",
+            description: "Adds one or more maintenance log entry rows. Can add entries to different dates and shifts simultaneously.",
             parameters: {
                 type: Type.OBJECT,
                 properties: {
@@ -127,18 +127,16 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
                         items: {
                             type: Type.OBJECT,
                             properties: {
-                                date: { type: Type.STRING, description: "Date (YYYY-MM-DD). Defaults to current report date." },
+                                date: { type: Type.STRING, description: "Date (YYYY-MM-DD). Defaults to current report date if omitted." },
                                 shift: { type: Type.STRING, enum: ["night", "morning", "evening"], description: "The shift to add the entry to." },
-                                machine: machines.length > 0 
-                                    ? { type: Type.STRING, enum: machines, description: "The name of the machine." }
-                                    : { type: Type.STRING, description: "The name of the machine." },
-                                line: { type: Type.STRING, description: "Production line number(s)." },
+                                machine: { type: Type.STRING, description: "The name of the machine. Prefer using names from the Valid Machine List." },
+                                line: { type: Type.STRING, description: "Production line number(s) (e.g. '1', '2')." },
                                 description: { type: Type.STRING, description: "The work description." },
                                 totalTime: { type: Type.STRING, description: "Total duration, e.g., '30m'." },
                                 notes: { type: Type.STRING, description: "Additional notes." },
                                 used_parts: {
                                     type: Type.ARRAY,
-                                    description: "List of spare parts used.",
+                                    description: "List of spare parts used. Prefer names from the Spare Parts Database.",
                                     items: {
                                         type: Type.OBJECT,
                                         properties: {
@@ -156,45 +154,57 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
             }
         };
 
-        const editLogEntryTool: FunctionDeclaration = {
-            name: "edit_log_entry",
-            description: "Edits an existing log entry. You MUST provide the 'id' of the entry (found in the system context) to update it.",
+        const editLogEntriesTool: FunctionDeclaration = {
+            name: "edit_log_entries",
+            description: "Edits multiple existing log entries. You MUST provide the 'id' for each entry.",
             parameters: {
                 type: Type.OBJECT,
                 properties: {
-                    id: { type: Type.STRING, description: "The UUID of the entry to edit (Required)." },
-                    machine: machines.length > 0 
-                        ? { type: Type.STRING, enum: machines, description: "New machine name." }
-                        : { type: Type.STRING, description: "New machine name." },
-                    line: { type: Type.STRING, description: "New line numbers." },
-                    description: { type: Type.STRING, description: "New work description." },
-                    totalTime: { type: Type.STRING, description: "New total time." },
-                    notes: { type: Type.STRING, description: "New notes." },
-                    used_parts: {
+                    edits: {
                         type: Type.ARRAY,
-                        description: "New list of spare parts used (This overwrites existing parts).",
+                        description: "List of entries to edit.",
                         items: {
                             type: Type.OBJECT,
                             properties: {
-                                name: { type: Type.STRING, description: "Name of the part." },
-                                quantity: { type: Type.STRING, description: "Quantity used." }
-                            }
+                                id: { type: Type.STRING, description: "The UUID of the entry to edit (Required)." },
+                                machine: { type: Type.STRING, description: "New machine name." },
+                                line: { type: Type.STRING, description: "New line numbers." },
+                                description: { type: Type.STRING, description: "New work description." },
+                                totalTime: { type: Type.STRING, description: "New total time." },
+                                notes: { type: Type.STRING, description: "New notes." },
+                                used_parts: {
+                                    type: Type.ARRAY,
+                                    description: "New list of spare parts used (This overwrites existing parts).",
+                                    items: {
+                                        type: Type.OBJECT,
+                                        properties: {
+                                            name: { type: Type.STRING, description: "Name of the part." },
+                                            quantity: { type: Type.STRING, description: "Quantity used." }
+                                        }
+                                    }
+                                }
+                            },
+                            required: ["id"]
                         }
                     }
                 },
-                required: ["id"]
+                required: ["edits"]
             }
         };
 
-        const deleteLogEntryTool: FunctionDeclaration = {
-            name: "delete_log_entry",
-            description: "Deletes a specific log entry. You MUST provide the 'id' of the entry.",
+        const deleteLogEntriesTool: FunctionDeclaration = {
+            name: "delete_log_entries",
+            description: "Deletes multiple log entries by their IDs.",
             parameters: {
                 type: Type.OBJECT,
                 properties: {
-                    id: { type: Type.STRING, description: "The UUID of the entry to delete." }
+                    ids: { 
+                        type: Type.ARRAY, 
+                        items: { type: Type.STRING },
+                        description: "List of UUIDs to delete." 
+                    }
                 },
-                required: ["id"]
+                required: ["ids"]
             }
         };
 
@@ -269,15 +279,15 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
             shifts: {
                 night: { 
                     engineers: report.shifts.night.engineers, 
-                    entries: report.shifts.night.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
+                    entries: report.shifts.night.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, line: e.line, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
                 },
                 morning: { 
                     engineers: report.shifts.morning.engineers, 
-                    entries: report.shifts.morning.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
+                    entries: report.shifts.morning.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, line: e.line, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
                 },
                 evening: { 
                     engineers: report.shifts.evening.engineers, 
-                    entries: report.shifts.evening.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
+                    entries: report.shifts.evening.entries.filter(e => e.machine || e.description).map(e => ({ id: e.id, machine: e.machine, line: e.line, desc: e.description, time: e.totalTime, parts: e.spareParts, notes: e.notes })) 
                 },
             }
         };
@@ -294,24 +304,33 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
         - Currently Viewing Report Date: ${report.date}
         - Current Section: ${report.section}
         
+        === DATABASE CONTEXT (PRIORITY) ===
         VALID MACHINE LIST: [${machineListStr}]
         AVAILABLE ENGINEERS DATABASE: [${engineerListStr}]
+        EXISTING SPARE PARTS DATABASE: [${dbSummary}]
         
         Current Report Data: ${JSON.stringify(simplifiedReport)}
-        Existing Spare Parts Database: [${dbSummary}]
         
-        Rules:
-        1. When adding entries, YOU MUST ONLY use machine names from the 'VALID MACHINE LIST'.
-        2. To ADD entries, use the 'add_log_entries' tool. Pass an ARRAY of entry objects. Do NOT call the tool multiple times for multiple entries.
-        3. To EDIT or DELETE an entry, you MUST first find its 'id' in the 'Current Report Data' provided above. 
-           - Use 'edit_log_entry(id="...")' to modify fields.
-           - Use 'delete_log_entry(id="...")' to remove an entry.
-        4. If the user specifies a relative date, calculate the YYYY-MM-DD string.
-        5. If the user provides a calculation for time, calculate the sum for the totalTime field.
-        6. Engineer Management:
-           - Use 'manage_engineers' with action 'assign_to_shift' to set the team for a specific shift.
-           - If the user asks to add a NEW engineer to the system/list, use action 'add_to_database'.
-        7. Analyze any attached images or files to extract data if requested.
+        === RULES ===
+        1. **Adding Entries:** 
+           - When specifying a 'machine', you MUST first check the 'VALID MACHINE LIST'. If the user's input matches (even approximately), use the EXACT name from the list.
+           - ONLY use a machine name NOT in the list if the user explicitly asks for a custom/new machine.
+           - For 'line', use standard numbers like "1", "2", "3" if implied by context (e.g. "CFA 1" -> Machine: CFA, Line: 1).
+           - For 'used_parts', preferentially match names against the 'EXISTING SPARE PARTS DATABASE'.
+           - **Multi-Date/Shift:** You can add entries to different dates by specifying the 'date' field in the entry object. You can generate random dates if requested to "fill out previous days".
+        
+        2. **Log Management:**
+           - To ADD entries, use 'add_log_entries' with an array of objects.
+           - To EDIT multiple entries, use 'edit_log_entries' with an array of edit objects containing their IDs.
+           - To DELETE multiple entries, use 'delete_log_entries' with an array of IDs.
+        
+        3. **Engineer Management:**
+           - To assign a team, use 'manage_engineers(action="assign_to_shift")'. Prefer names from 'AVAILABLE ENGINEERS DATABASE'.
+           - Only add new engineers to database if explicitly requested.
+
+        4. **General:**
+           - If user mentions relative dates (yesterday, today), calculate YYYY-MM-DD.
+           - Sum up times if multiple durations are provided.
         `;
 
         const chatHistory: any[] = messages.slice(1).map(m => ({
@@ -344,7 +363,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
             contents: [...chatHistory, { role: 'user', parts: currentUserContentParts }],
             config: {
                 systemInstruction: systemPrompt,
-                tools: [{ functionDeclarations: [addLogEntriesTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }],
+                tools: [{ functionDeclarations: [addLogEntriesTool, editLogEntriesTool, deleteLogEntriesTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }],
                 temperature: temperature
             }
         });
@@ -396,7 +415,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
                     config: {
                         systemInstruction: systemPrompt,
                         temperature: temperature,
-                        tools: [{ functionDeclarations: [addLogEntriesTool, editLogEntryTool, deleteLogEntryTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
+                        tools: [{ functionDeclarations: [addLogEntriesTool, editLogEntriesTool, deleteLogEntriesTool, addSparePartTool, changeDateTool, analyzeDataTool, manageEngineersTool] }]
                     }
             });
             

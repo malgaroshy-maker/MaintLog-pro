@@ -86,17 +86,25 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
                       const shift = report.shifts[shiftKey];
                       shift.entries.forEach(entry => {
                           if (entry.machine || entry.description) {
+                              // Create a unique display name for the machine including line number
+                              // This helps the AI distinguish "CFA (Line 1)" from "CFA (Line 2)"
+                              const machineDisplay = entry.line 
+                                  ? `${entry.machine} (Line ${entry.line})` 
+                                  : entry.machine;
+
                               allData.push({
                                   date: report.date,
                                   section: report.section,
                                   shift: shiftKey,
                                   machine: entry.machine,
                                   line: entry.line,
+                                  machine_display: machineDisplay, // Critical for AI Context
                                   description: entry.description,
                                   totalTimeStr: entry.totalTime,
                                   durationMinutes: parseDuration(entry.totalTime),
                                   spareParts: entry.spareParts,
                                   qty: entry.quantity,
+                                  notes: entry.notes,
                                   engineers: shift.engineers
                               });
                           }
@@ -163,17 +171,31 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
           Capabilities:
           1. Retrieve data using 'get_maintenance_data'.
           2. Analyze the data.
-          3. GENERATE CHARTS/TABLES (Output JSON).
+          3. GENERATE CHARTS/TABLES.
           ${enableImageGen ? '4. GENERATE IMAGES (Call \'generate_image\').' : ''}
 
+          CRITICAL RULES FOR ANALYSIS:
+          - Machines with the same name often exist on different lines (e.g., "CFA" on Line 1 is different from "CFA" on Line 2).
+          - ALWAYS use the 'machine_display' field from the data when aggregating stats or labeling charts. This combines the machine name and line number.
+          - If 'machine_display' is not available, group by BOTH 'machine' and 'line'.
+          - The 'notes' field contains important context. Always consider it when analyzing failure reasons or patterns.
+
           RESPONSE FORMAT FOR CHARTS:
-          If the user asks for a chart or table, output a standard JSON block at the end of your response:
+          If the user asks for a chart or table, you MUST append a valid JSON block at the very end of your response. 
+          Do not include any text after the JSON block.
+          
           \`\`\`json
           {
             "visualization": {
               "type": "bar" | "pie" | "table",
               "title": "Chart Title",
-              "data": { ... }
+              "data": { 
+                  "labels": ["CFA (Line 1)", "TP (Line 2)", ...],
+                  "values": [10, 5, ...],
+                  "color": "#3b82f6" // Optional hex color
+                  // For pie charts, use "segments": [{ "name": "...", "value": 10, "color": "..." }]
+                  // For tables, use "headers": [...], "rows": [[...], [...]]
+              }
             }
           }
           \`\`\`
@@ -302,11 +324,35 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
           }
 
           // Robust JSON Parsing for Charts
+          // Try standard markdown block first
+          let jsonStr = "";
           const jsonMatch = finalResponseText.match(/```json\s*([\s\S]*?)\s*```/i) || finalResponseText.match(/```\s*([\s\S]*?)\s*```/i);
           
           if (jsonMatch) {
+              jsonStr = jsonMatch[1];
+              // Remove the JSON block from the text shown to user to avoid clutter
+              finalResponseText = finalResponseText.replace(jsonMatch[0], '').trim();
+          } else {
+              // Fallback: Try to find raw JSON object in text if markdown is missing
+              const firstBrace = finalResponseText.indexOf('{');
+              const lastBrace = finalResponseText.lastIndexOf('}');
+              if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                  const potentialJson = finalResponseText.substring(firstBrace, lastBrace + 1);
+                  // Basic validation to see if it looks like the visualization object
+                  if (potentialJson.includes('"visualization"')) {
+                      jsonStr = potentialJson;
+                      // Don't remove raw JSON from text automatically as it might be part of the sentence, 
+                      // unless it's at the very end.
+                      if (lastBrace === finalResponseText.length - 1) {
+                           finalResponseText = finalResponseText.substring(0, firstBrace).trim();
+                      }
+                  }
+              }
+          }
+
+          if (jsonStr) {
               try {
-                  const parsed = JSON.parse(jsonMatch[1]);
+                  const parsed = JSON.parse(jsonStr);
                   if (parsed.visualization) {
                       const viz = parsed.visualization;
                       if (viz.type === 'bar') {
@@ -316,10 +362,11 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
                       } else if (viz.type === 'table') {
                           tableData = viz.data;
                       }
-                      finalResponseText = finalResponseText.replace(jsonMatch[0], '').trim();
                   }
               } catch (e) {
                   console.error("Failed to parse AI JSON visualization", e);
+                  // Optionally append an error note to the chat
+                  // finalResponseText += "\n[System: Failed to render chart due to invalid data format]";
               }
           }
 
@@ -364,11 +411,20 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
                               className="w-full rounded-t hover:opacity-80 transition-all min-w-[20px]"
                               style={{ height: `${(val / max) * 100}%`, backgroundColor: data.data.color || '#3b82f6' }}
                           ></div>
-                          <div className="text-[10px] text-slate-400 mt-2 rotate-45 origin-left whitespace-nowrap overflow-visible" title={labels[idx]}>{labels[idx]}</div>
+                          {/* Updated Label Container for rotated text */}
+                          <div className="relative h-20 w-full mt-2">
+                              <div 
+                                  className="absolute top-0 left-1/2 -translate-x-1/2 text-[10px] text-slate-500 rotate-45 origin-top-left whitespace-nowrap overflow-visible" 
+                                  title={labels[idx]}
+                              >
+                                  {labels[idx]}
+                              </div>
+                          </div>
                       </div>
                   ))}
               </div>
-              <div className="h-8"></div>
+              {/* Extra Spacer for rotated labels */}
+              <div className="h-10"></div>
           </div>
       );
   };

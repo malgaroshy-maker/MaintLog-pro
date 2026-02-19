@@ -953,11 +953,60 @@ const App: React.FC = () => {
       if (toolName === 'add_log_entries') {
           try {
               if (Array.isArray(args.entries)) {
-                  args.entries.forEach((entryArgs: any) => {
-                      updatedReport = addEntryToReportObject(updatedReport, entryArgs, sparePartsDB);
+                  const entriesByDate: Record<string, any[]> = {};
+                  const currentSec = reportRef.current.section;
+
+                  // Group by date
+                  args.entries.forEach((entry: any) => {
+                      const date = entry.date || reportRef.current.date; // Default to current
+                      if (!entriesByDate[date]) entriesByDate[date] = [];
+                      entriesByDate[date].push(entry);
                   });
-                  updateReport(updatedReport);
-                  return `Successfully added ${args.entries.length} entries.`;
+
+                  let currentReportUpdated = false;
+                  let updatedCurrentReport = JSON.parse(JSON.stringify(reportRef.current));
+
+                  for (const [date, entries] of Object.entries(entriesByDate)) {
+                      if (date === reportRef.current.date) {
+                          // Update current report state
+                          entries.forEach(e => {
+                              updatedCurrentReport = addEntryToReportObject(updatedCurrentReport, e, sparePartsDB);
+                          });
+                          currentReportUpdated = true;
+                      } else {
+                          // Update localStorage for other dates
+                          const key = getStorageKey(date, currentSec);
+                          let storedReport: ReportData;
+                          const storedJson = localStorage.getItem(key);
+                          
+                          if (storedJson) {
+                              storedReport = JSON.parse(storedJson);
+                          } else {
+                              // Create new if not exists
+                              storedReport = {
+                                  section: currentSec,
+                                  date: date,
+                                  shifts: {
+                                      night: createEmptyShift('night', 'Night shift report'),
+                                      morning: createEmptyShift('morning', 'Morning shift report'),
+                                      evening: createEmptyShift('evening', 'Evening shift report'),
+                                  }
+                              };
+                          }
+
+                          entries.forEach(e => {
+                              storedReport = addEntryToReportObject(storedReport, e, sparePartsDB);
+                          });
+                          
+                          localStorage.setItem(key, JSON.stringify(storedReport));
+                      }
+                  }
+
+                  if (currentReportUpdated) {
+                      updateReport(updatedCurrentReport);
+                  }
+                  
+                  return `Successfully added ${args.entries.length} entries across ${Object.keys(entriesByDate).length} dates.`;
               }
               return "Invalid format: entries must be an array.";
           } catch (e: any) {
@@ -965,54 +1014,67 @@ const App: React.FC = () => {
           }
       }
 
-      if (toolName === 'edit_log_entry') {
-          const { id, ...updates } = args;
-          let found = false;
-          (['night', 'morning', 'evening'] as const).forEach(shiftId => {
-              updatedReport.shifts[shiftId].entries = updatedReport.shifts[shiftId].entries.map((e: LogEntry) => {
-                  if (e.id === id) {
-                      found = true;
-                      
-                      // Handle complex updates like used_parts
-                      let partUpdates = {};
-                      if (updates.used_parts) {
-                          // Re-calculate string fields
-                          const usedPartsData = updates.used_parts.map((up: any) => {
-                              const dbPart = sparePartsDB.find(p => p.name.toLowerCase() === up.name.toLowerCase());
-                              return { 
-                                  partId: dbPart?.id || crypto.randomUUID(), 
-                                  name: up.name, 
-                                  partNumber: dbPart?.partNumber || "N/A", 
-                                  quantity: up.quantity || "1" 
-                              };
-                          });
-                          partUpdates = {
-                              usedParts: usedPartsData,
-                              spareParts: usedPartsData.map((p: any) => `${p.name} (${p.partNumber})`).join('\n'),
-                              quantity: usedPartsData.map((p: any) => p.quantity).join('\n')
-                          };
-                          delete updates.used_parts;
-                      }
+      if (toolName === 'edit_log_entries') {
+          try {
+              if (!Array.isArray(args.edits)) return "Edits must be an array.";
+              const editsMap = new Map(args.edits.map((e:any) => [e.id, e]));
+              let count = 0;
 
-                      return { ...e, ...updates, ...partUpdates };
-                  }
-                  return e;
+              (['night', 'morning', 'evening'] as const).forEach(shiftId => {
+                  updatedReport.shifts[shiftId].entries = updatedReport.shifts[shiftId].entries.map((e: LogEntry) => {
+                      if (editsMap.has(e.id)) {
+                          count++;
+                          const { id, ...updates } = editsMap.get(e.id) as any;
+                          
+                          // Handle complex updates like used_parts
+                          let partUpdates = {};
+                          if (updates.used_parts) {
+                              const usedPartsData = updates.used_parts.map((up: any) => {
+                                  const dbPart = sparePartsDB.find(p => p.name.toLowerCase() === up.name.toLowerCase());
+                                  return { 
+                                      partId: dbPart?.id || crypto.randomUUID(), 
+                                      name: up.name, 
+                                      partNumber: dbPart?.partNumber || "N/A", 
+                                      quantity: up.quantity || "1" 
+                                  };
+                              });
+                              partUpdates = {
+                                  usedParts: usedPartsData,
+                                  spareParts: usedPartsData.map((p: any) => `${p.name} (${p.partNumber})`).join('\n'),
+                                  quantity: usedPartsData.map((p: any) => p.quantity).join('\n')
+                              };
+                              delete updates.used_parts;
+                          }
+
+                          return { ...e, ...updates, ...partUpdates };
+                      }
+                      return e;
+                  });
               });
-          });
-          if (found) {
-              updateReport(updatedReport);
-              return "Entry updated.";
+              
+              if (count > 0) {
+                  updateReport(updatedReport);
+                  return `Updated ${count} entries.`;
+              }
+              return "No matching entries found to edit.";
+          } catch (e: any) {
+              return "Edit error: " + e.message;
           }
-          return "Entry ID not found.";
       }
 
-      if (toolName === 'delete_log_entry') {
-          const { id } = args;
+      if (toolName === 'delete_log_entries') {
+          if (!Array.isArray(args.ids)) return "IDs must be an array.";
+          const idsToDelete = new Set(args.ids);
+          let deletedCount = 0;
+
           (['night', 'morning', 'evening'] as const).forEach(shiftId => {
-              updatedReport.shifts[shiftId].entries = updatedReport.shifts[shiftId].entries.filter((e: LogEntry) => e.id !== id);
+              const originalLen = updatedReport.shifts[shiftId].entries.length;
+              updatedReport.shifts[shiftId].entries = updatedReport.shifts[shiftId].entries.filter((e: LogEntry) => !idsToDelete.has(e.id));
+              deletedCount += (originalLen - updatedReport.shifts[shiftId].entries.length);
           });
+          
           updateReport(updatedReport);
-          return "Entry deleted.";
+          return `Deleted ${deletedCount} entries.`;
       }
 
       return "Tool not recognized.";
