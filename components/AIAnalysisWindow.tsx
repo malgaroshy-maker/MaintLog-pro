@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Sparkles, Bot, User, Loader2, BarChart3, Table as TableIcon, FileText, PieChart, LineChart, RefreshCw, Download, Image as ImageIcon } from 'lucide-react';
+import { X, Send, Sparkles, Bot, User, Loader2, BarChart3, FileText, Image as ImageIcon, LineChart } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import type { FunctionDeclaration } from "@google/genai";
 import { ReportData } from '../types';
@@ -9,7 +9,7 @@ interface AIAnalysisWindowProps {
   onClose: () => void;
   apiKey?: string;
   model: string;
-  sections: string[];
+  sections?: string[];
   currentDate: string;
   currentSection: string;
   temperature: number;
@@ -28,7 +28,7 @@ interface AnalysisMessage {
 }
 
 export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({ 
-    isOpen, onClose, apiKey, model, sections, currentDate, currentSection, 
+    isOpen, onClose, apiKey, model, currentDate, currentSection, 
     temperature, enableImageGen, imageModel, imageAspectRatio, thinkingBudget 
 }) => {
   const [input, setInput] = useState('');
@@ -233,9 +233,10 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
           if (functionCalls && functionCalls.length > 0) {
               const toolResults = await Promise.all(functionCalls.map(async (call) => {
                   if (call.name === 'get_maintenance_data') {
-                      const start = call.args.startDate as string;
-                      const end = call.args.endDate as string;
-                      const sec = (call.args.section as string) || currentSection;
+                      const args = call.args || {};
+                      const start = args.startDate as string;
+                      const end = args.endDate as string;
+                      const sec = (args.section as string) || currentSection;
                       
                       const data = getAllData(start, end, sec);
                       const jsonResult = JSON.stringify(data);
@@ -250,7 +251,8 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
                   
                   if (call.name === 'generate_image') {
                       try {
-                          const prompt = call.args.prompt as string;
+                          const args = call.args || {};
+                          const prompt = args.prompt as string;
                           const selectedImageModel = imageModel || 'gemini-2.5-flash-image';
                           
                           if (selectedImageModel.includes('imagen')) {
@@ -265,7 +267,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
                                   }
                               });
                               if (imgResponse.generatedImages && imgResponse.generatedImages.length > 0) {
-                                  generatedImage = imgResponse.generatedImages[0].image.imageBytes;
+                                  generatedImage = imgResponse.generatedImages[0].image?.imageBytes;
                               }
                           } else {
                               // Use generateContent for Gemini models (Nano Banana series)
@@ -279,7 +281,7 @@ export const AIAnalysisWindow: React.FC<AIAnalysisWindowProps> = ({
                                     }
                               });
                               if (imgResponse.candidates && imgResponse.candidates.length > 0) {
-                                  for (const part of imgResponse.candidates[0].content.parts) {
+                                  for (const part of imgResponse.candidates[0].content?.parts || []) {
                                       if (part.inlineData) {
                                           generatedImage = part.inlineData.data;
                                           break;

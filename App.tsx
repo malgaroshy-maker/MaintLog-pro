@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ShiftSection from './components/ShiftSection';
 import { AIChat } from './components/AIChat';
 import { AIAnalysisWindow } from './components/AIAnalysisWindow';
 import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings, LogEntry, UsedPart } from './types';
-import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Type, Trash2, Undo2, Redo2, BarChart3, HardDrive, AlertTriangle, History, Clock, Sparkles, Key, Cpu, LineChart, Layout, Palette, Database, Info, Cloud, CloudUpload, CloudDownload, RefreshCw, FolderSymlink } from 'lucide-react';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Trash2, Undo2, Redo2, BarChart3, Sparkles, Cpu, LineChart, Layout, Palette, Database, Cloud, RefreshCw, FolderSymlink } from 'lucide-react';
 import { gatherAllData, restoreData, isFileSystemApiSupported, pickSaveFile, pickOpenFile, writeToFile, readFromFile } from './services/driveService';
 
 // Declare Google global for TypeScript
@@ -172,12 +172,7 @@ const App: React.FC = () => {
   const [editSectionName, setEditSectionName] = useState('');
 
   // Analytics & History State
-  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [analysisWindowOpen, setAnalysisWindowOpen] = useState(false);
-  const [analyticsData, setAnalyticsData] = useState<{topMachines: {name: string, count: number}[], downtime: {date: string, minutes: number}[], totalInterventions: number}>({ topMachines: [], downtime: [], totalInterventions: 0});
-  const [historyModalOpen, setHistoryModalOpen] = useState(false);
-  const [historyTargetMachine, setHistoryTargetMachine] = useState('');
-  const [machineHistoryData, setMachineHistoryData] = useState<any[]>([]);
 
   // AI Chat State
   const [aiChatOpen, setAiChatOpen] = useState(false);
@@ -669,81 +664,11 @@ const App: React.FC = () => {
   };
 
   const calculateAnalytics = () => {
-    let machineCounts: {[key: string]: number} = {};
-    let downtimeStats: {[key: string]: number} = {};
-    let interventionCount = 0;
-
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('maintlog_report_') && key.endsWith(currentSection)) {
-            try {
-                const data: ReportData = JSON.parse(localStorage.getItem(key)!);
-                (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
-                    const shift = data.shifts[shiftKey];
-                    shift.entries.forEach(entry => {
-                        if (entry.machine && entry.description) {
-                            interventionCount++;
-                            machineCounts[entry.machine] = (machineCounts[entry.machine] || 0) + 1;
-                            const mins = parseInt(timeToMinutes(entry.totalTime));
-                            if (mins > 0) {
-                                downtimeStats[data.date] = (downtimeStats[data.date] || 0) + mins;
-                            }
-                        }
-                    });
-                });
-            } catch (e) { console.error(e); }
-        }
-    }
-
-    const sortedMachines = Object.entries(machineCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([name, count]) => ({ name, count }));
-
-    const sortedDowntime = Object.entries(downtimeStats)
-        .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
-        .slice(0, 7)
-        .map(([date, minutes]) => ({ date, minutes }))
-        .reverse();
-
-    setAnalyticsData({
-        topMachines: sortedMachines,
-        downtime: sortedDowntime,
-        totalInterventions: interventionCount
-    });
-    setAnalyticsOpen(true);
+    console.log("Analytics feature temporarily disabled.");
   };
 
   const showMachineHistory = (machineName: string) => {
-      setHistoryTargetMachine(machineName);
-      const historyList: any[] = [];
-      
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('maintlog_report_') && key.endsWith(currentSection)) {
-            try {
-                const data: ReportData = JSON.parse(localStorage.getItem(key)!);
-                (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
-                    const shift = data.shifts[shiftKey];
-                    shift.entries.forEach(entry => {
-                        if (entry.machine === machineName && (entry.description || entry.totalTime)) {
-                            historyList.push({
-                                date: data.date,
-                                shift: shift.title,
-                                description: stripHtml(entry.description),
-                                totalTime: entry.totalTime,
-                                spareParts: entry.spareParts,
-                                engineers: shift.engineers
-                            });
-                        }
-                    });
-                });
-            } catch (e) { console.error(e); }
-        }
-    }
-    historyList.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    setMachineHistoryData(historyList);
-    setHistoryModalOpen(true);
+      console.log(`History for ${machineName} temporarily disabled.`);
   };
 
   const handleBackup = () => {

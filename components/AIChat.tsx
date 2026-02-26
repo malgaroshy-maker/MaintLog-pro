@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Sparkles, Bot, User, Loader2, AlertTriangle, Terminal, Paperclip, FileText, Image as ImageIcon, Trash2 } from 'lucide-react';
-import { GoogleGenAI, Type, FunctionDeclaration, Content } from "@google/genai";
+import { X, Send, Sparkles, Bot, User, Loader2, AlertTriangle, Terminal, Paperclip, FileText, Image as ImageIcon } from 'lucide-react';
+import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 import { ReportData, SparePart } from '../types';
 
 interface AIChatProps {
@@ -384,8 +384,8 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, apiKey, model, 
             const toolResults: {name: string, result: any}[] = [];
 
             for (const call of functionCalls) {
-                const fnName = call.name;
-                const fnArgs = call.args;
+                const fnName = call.name || "unknown_tool";
+                const fnArgs = call.args || {};
                 
                 let toolResult = "Tool executed successfully.";
                 try {
