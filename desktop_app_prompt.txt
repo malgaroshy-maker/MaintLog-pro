@@ -1,9 +1,9 @@
-Act as an expert Senior Windows Application Developer and Software Architect.
+Act as an expert Senior Web Application Developer and Software Architect.
 
-I need you to design and build a professional Windows Desktop Application (.exe) called **"MaintLog Pro"** from scratch.
+I need you to design and build a professional Web Application called **"MaintLog Pro"** from scratch.
 
 ### PROJECT GOAL
-Build a standalone digital logbook for industrial maintenance teams to track daily activities. It must replace physical paper logbooks. The final output must be a compiled, installable, or portable Windows executable (e.g., using C# WPF/WinUI, Python PyQt, Rust Tauri, or similar). **You choose the best stack.**
+Build a standalone digital logbook for industrial maintenance teams to track daily activities. It must replace physical paper logbooks. The final output must be a responsive, offline-first web application (React + Vite).
 
 ### FUNCTIONAL SPECIFICATION
 
@@ -31,6 +31,7 @@ Each row in the grid represents a task and must have these specific columns/feat
 
 *   **Machine Column:** A dropdown to select which machine was worked on.
     *   *Feature:* Include a "Manage Machines" button to Add/Edit/Delete machines from the dropdown list.
+    *   *Feature:* **History View:** A button to view all past logs for the selected machine.
 *   **Line Column:** A multi-select popup to choose Production Line numbers (e.g., "Line 1, Line 3").
 *   **Description:** A text field for the work description.
 *   **Total Time (Calculator Tool):**
@@ -46,29 +47,38 @@ Each row in the grid represents a task and must have these specific columns/feat
 *   **Notes:** A text field for remarks.
 *   **Actions:** Button to delete the row.
 
-#### 4. Data Persistence (Offline)
+#### 4. Analytics & Insights
+*   **Analytics Dashboard:** A modal showing statistical insights:
+    *   Total Downtime.
+    *   Downtime by Shift (Pie Chart).
+    *   Top 5 Machines by Interventions.
+    *   Top 5 Spare Parts Used.
+*   **AI Analysis:** A chat interface to query data and generate charts/images.
+
+#### 5. Data Persistence (Offline)
 *   The app must run 100% offline.
-*   Data must be saved to the local file system (e.g., SQLite database or JSON files in `%APPDATA%`).
+*   Data must be saved to `localStorage` and support File System Sync (JSON).
 *   Auto-save functionality is preferred.
 
-#### 5. Output & Reporting
+#### 6. Output & Reporting
 *   **Printing:** The app must have a "Print Report" button.
     *   It must generate a clean, professional **A4 Landscape** layout.
     *   It must strip away UI buttons (like "Add Row", "Settings") and print only the data tables with high-contrast borders.
 *   **CSV Export:** Button to export the current day's data to Excel/CSV.
 
-#### 6. Settings & Customization
+#### 7. Settings & Customization
 *   **Theme:** Allow users to change the color palette of the app.
 *   **Typography:** Allow users to change font size (Small/Medium/Large).
 *   **Compact Mode:** An option to reduce row height for fitting more data on the screen.
+*   **AI Configuration:** Settings for API Key, Model Selection, and Thinking Budget.
 
 ### DESIGN AESTHETIC
-The app should look like a modern industrial tool. Clean lines, clear typography (Inter/Roboto), and high contrast. It should NOT look like a default Windows 98 app. Use modern UI libraries suitable for the chosen tech stack.
+The app should look like a modern industrial tool. Clean lines, clear typography (Inter/Roboto), and high contrast. Use Tailwind CSS.
 
 ### YOUR TASK
-1.  **Select the Stack:** Choose the best language and framework to build this as a standalone Windows .exe. Explain your choice.
+1.  **Select the Stack:** React + Vite + TypeScript.
 2.  **File Structure:** List the files you will generate.
 3.  **Code:** Write the **complete** source code for the application.
-4.  **Build Guide:** Provide specific commands to compile the code into a `MaintLogPro.exe` file.
+4.  **Build Guide:** Provide specific commands to compile the code.
 
 **Go.**

@@ -1,7 +1,7 @@
 MaintLog Pro - Comprehensive Functional & UX Specification
 ==========================================================
 Version: 2.1.0
-Generated: 2026-05-20
+Generated: 2026-02-26
 
 1. SYSTEM OVERVIEW
 ------------------
@@ -29,6 +29,7 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
      - **Settings Trigger:** Opens the Global Settings Modal.
    - **Right Section:**
      - **Auto-Save Indicator:** Green badge "Auto-Saving On" (triggers every 5 seconds).
+     - **Analytics Dashboard:** Button to open the statistical overview (BarChart3 icon).
      - **AI Copilot:** Button to open the Chat Interface.
      - **AI Analysis:** Button to open the Data Visualization Dashboard.
      - **Export CSV:** Downloads current view data.
@@ -98,6 +99,8 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
    - **Manager:** "Settings" icon in column header opens Machine Manager.
      - Add/Edit/Delete machine names.
      - Validation: Prevents duplicate machine names.
+   - **History View:** "History" icon appears when a machine is selected.
+     - Clicking opens the Machine History Modal, showing all past interventions for that machine.
 
 6.3. Line Column
    - **Visibility:** Toggleable via Settings.
@@ -241,3 +244,18 @@ MaintLog Pro is a client-side, single-page application (SPA) designed to replace
 - **Tab / Right Arrow (in Description):** Accept Ghost Text suggestion.
 - **Ctrl+Z:** Undo last action.
 - **Ctrl+Y:** Redo last action.
+
+12. ANALYTICS DASHBOARD
+-----------------------
+- **Overview:** A modal dashboard providing statistical insights into maintenance operations.
+- **Metrics:**
+  - **Total Downtime:** Aggregated time for the current view.
+  - **Shift Distribution:** Pie chart showing downtime percentage by shift.
+  - **Top Machines:** Bar chart of the 5 machines with the most interventions.
+  - **Top Parts:** List of the 5 most frequently used spare parts.
+
+13. MACHINE HISTORY VIEW
+------------------------
+- **Access:** Triggered via the "History" icon in the Machine column when a machine is selected.
+- **Function:** Scans all local storage reports to find every instance of the selected machine.
+- **Display:** A chronological list of interventions (Date, Shift, Description, Duration) for that specific machine.

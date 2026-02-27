@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import ShiftSection from './components/ShiftSection';
 import { AIChat } from './components/AIChat';
 import { AIAnalysisWindow } from './components/AIAnalysisWindow';
-import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings, LogEntry, UsedPart } from './types';
-import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Trash2, Undo2, Redo2, BarChart3, Sparkles, Cpu, LineChart, Layout, Palette, Database, Cloud, RefreshCw, FolderSymlink } from 'lucide-react';
+import { ReportData, ShiftData, INITIAL_ENTRY, SparePart, AppSettings, LogEntry, UsedPart, AnalyticsData } from './types';
+import { Printer, FileSpreadsheet, Lock, Settings, X, LogOut, Sliders, Plus, Check, Pencil, Calendar, Upload, Download, Trash2, Undo2, Redo2, BarChart3, Sparkles, Cpu, LineChart, Layout, Palette, Database, Cloud, RefreshCw, FolderSymlink, Clock, History, AlertTriangle, Info } from 'lucide-react';
 import { gatherAllData, restoreData, isFileSystemApiSupported, pickSaveFile, pickOpenFile, writeToFile, readFromFile } from './services/driveService';
 
 // Declare Google global for TypeScript
@@ -173,6 +173,11 @@ const App: React.FC = () => {
 
   // Analytics & History State
   const [analysisWindowOpen, setAnalysisWindowOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyTargetMachine, setHistoryTargetMachine] = useState('');
+  const [machineHistoryData, setMachineHistoryData] = useState<{ date: string; shift: string; entry: LogEntry }[]>([]);
 
   // AI Chat State
   const [aiChatOpen, setAiChatOpen] = useState(false);
@@ -664,11 +669,113 @@ const App: React.FC = () => {
   };
 
   const calculateAnalytics = () => {
-    console.log("Analytics feature temporarily disabled.");
+    let totalDowntime = 0;
+    let downtimeByShift = { night: 0, morning: 0, evening: 0 };
+    let totalEntries = 0;
+    const machineMap = new Map<string, { count: number; time: number }>();
+    const partsMap = new Map<string, number>();
+
+    // Iterate over all keys in localStorage
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('maintlog_report_')) {
+            try {
+                const reportData: ReportData = JSON.parse(localStorage.getItem(key)!);
+                
+                // Only include reports for the current section
+                if (reportData.section === currentSection) {
+                    (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
+                        const shift = reportData.shifts[shiftKey];
+                        shift.entries.forEach(entry => {
+                            if (entry.machine || entry.description) {
+                                totalEntries++;
+                                
+                                // Calculate downtime
+                                const minutes = parseInt(timeToMinutes(entry.totalTime));
+                                if (!isNaN(minutes)) {
+                                    totalDowntime += minutes;
+                                    downtimeByShift[shiftKey] += minutes;
+                                }
+
+                                // Machine stats
+                                if (entry.machine) {
+                                    const current = machineMap.get(entry.machine) || { count: 0, time: 0 };
+                                    machineMap.set(entry.machine, { 
+                                        count: current.count + 1, 
+                                        time: current.time + (isNaN(minutes) ? 0 : minutes) 
+                                    });
+                                }
+
+                                // Spare parts stats
+                                if (entry.spareParts) {
+                                    const parts = entry.spareParts.split('\n');
+                                    parts.forEach(p => {
+                                        const cleanPart = p.trim();
+                                        if (cleanPart) {
+                                            partsMap.set(cleanPart, (partsMap.get(cleanPart) || 0) + 1);
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    });
+                }
+            } catch (e) { console.error("Error parsing report for analytics", e); }
+        }
+    }
+
+    const topMachines = Array.from(machineMap.entries())
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => b.time - a.time)
+        .slice(0, 5);
+
+    const topParts = Array.from(partsMap.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+    setAnalyticsData({
+        totalDowntime,
+        downtimeByShift,
+        topMachines,
+        topParts,
+        totalEntries
+    });
+    setAnalyticsOpen(true);
   };
 
   const showMachineHistory = (machineName: string) => {
-      console.log(`History for ${machineName} temporarily disabled.`);
+      const history: { date: string; shift: string; entry: LogEntry }[] = [];
+      
+      for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('maintlog_report_')) {
+              try {
+                  const reportData: ReportData = JSON.parse(localStorage.getItem(key)!);
+                  if (reportData.section === currentSection) {
+                      (['night', 'morning', 'evening'] as const).forEach(shiftKey => {
+                          const shift = reportData.shifts[shiftKey];
+                          shift.entries.forEach(entry => {
+                              if (entry.machine === machineName) {
+                                  history.push({
+                                      date: reportData.date,
+                                      shift: shiftKey,
+                                      entry: entry
+                                  });
+                              }
+                          });
+                      });
+                  }
+              } catch (e) { console.error(e); }
+          }
+      }
+
+      // Sort by date descending
+      history.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      setMachineHistoryData(history);
+      setHistoryTargetMachine(machineName);
+      setHistoryModalOpen(true);
   };
 
   const handleBackup = () => {
@@ -1064,8 +1171,144 @@ const App: React.FC = () => {
         thinkingBudget={settings.aiThinkingBudget}
       />
 
-      {/* Analytics Modal Code ... */}
-      {/* History Modal Code ... */}
+      {analyticsOpen && analyticsData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-[800px] max-h-[90vh] overflow-y-auto p-8">
+             <div className="flex justify-between items-center mb-8">
+                 <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-3"><BarChart3 className="text-blue-600" size={32}/> Performance Analytics</h2>
+                 <button onClick={() => setAnalyticsOpen(false)} className="bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition-colors"><X size={24} className="text-slate-500"/></button>
+             </div>
+
+             <div className="grid grid-cols-3 gap-6 mb-8">
+                 <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                     <div className="text-blue-600 font-bold text-sm uppercase tracking-wide mb-2">Total Downtime</div>
+                     <div className="text-4xl font-bold text-slate-800">{analyticsData.totalDowntime} <span className="text-lg text-slate-500 font-medium">min</span></div>
+                     <div className="text-xs text-blue-400 mt-2 font-medium">Across all shifts</div>
+                 </div>
+                 <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100">
+                     <div className="text-purple-600 font-bold text-sm uppercase tracking-wide mb-2">Total Entries</div>
+                     <div className="text-4xl font-bold text-slate-800">{analyticsData.totalEntries}</div>
+                     <div className="text-xs text-purple-400 mt-2 font-medium">Maintenance logs</div>
+                 </div>
+                 <div className="bg-green-50 p-6 rounded-2xl border border-green-100">
+                     <div className="text-green-600 font-bold text-sm uppercase tracking-wide mb-2">Shift Distribution</div>
+                     <div className="space-y-1 mt-2">
+                         <div className="flex justify-between text-xs font-medium"><span className="text-slate-600">Night</span> <span className="text-slate-800">{analyticsData.downtimeByShift.night}m</span></div>
+                         <div className="flex justify-between text-xs font-medium"><span className="text-slate-600">Morning</span> <span className="text-slate-800">{analyticsData.downtimeByShift.morning}m</span></div>
+                         <div className="flex justify-between text-xs font-medium"><span className="text-slate-600">Evening</span> <span className="text-slate-800">{analyticsData.downtimeByShift.evening}m</span></div>
+                     </div>
+                 </div>
+             </div>
+
+             <div className="grid grid-cols-2 gap-8">
+                 <div>
+                     <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2"><AlertTriangle size={20} className="text-orange-500"/> Top Problem Machines</h3>
+                     <div className="space-y-3">
+                         {analyticsData.topMachines.map((m, i) => (
+                             <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                 <div className="flex items-center gap-3">
+                                     <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">{i+1}</div>
+                                     <span className="font-bold text-slate-700">{m.name}</span>
+                                 </div>
+                                 <div className="text-right">
+                                     <div className="text-sm font-bold text-red-500">{m.time}m</div>
+                                     <div className="text-[10px] text-slate-400">{m.count} issues</div>
+                                 </div>
+                             </div>
+                         ))}
+                         {analyticsData.topMachines.length === 0 && <div className="text-slate-400 text-sm italic">No machine data available.</div>}
+                     </div>
+                 </div>
+
+                 <div>
+                     <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2"><Settings size={20} className="text-slate-500"/> Most Used Parts</h3>
+                     <div className="space-y-3">
+                         {analyticsData.topParts.map((p, i) => (
+                             <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                 <div className="flex items-center gap-3">
+                                     <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">{i+1}</div>
+                                     <span className="font-bold text-slate-700">{p.name}</span>
+                                 </div>
+                                 <div className="text-sm font-bold text-blue-600">{p.count} used</div>
+                             </div>
+                         ))}
+                         {analyticsData.topParts.length === 0 && <div className="text-slate-400 text-sm italic">No spare parts data available.</div>}
+                     </div>
+                 </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {historyModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-[800px] max-h-[80vh] flex flex-col">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
+                  <div>
+                      <h3 className="font-bold text-xl text-slate-800 flex items-center gap-2"><History className="text-blue-600"/> Machine History</h3>
+                      <p className="text-sm text-slate-500 font-medium">Maintenance Log for <span className="text-blue-600 font-bold">{historyTargetMachine}</span></p>
+                  </div>
+                  <button onClick={() => setHistoryModalOpen(false)} className="bg-white hover:bg-slate-100 p-2 rounded-full transition-colors shadow-sm border border-slate-200"><X size={20} className="text-slate-500"/></button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                  {machineHistoryData.length > 0 ? (
+                      <div className="space-y-4">
+                          {machineHistoryData.map((item, idx) => (
+                              <div key={idx} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                                  <div className="flex justify-between items-start mb-3">
+                                      <div className="flex items-center gap-3">
+                                          <div className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold text-slate-600 border border-slate-200 flex items-center gap-2">
+                                              <Calendar size={12}/> {getFormattedDate(item.date)}
+                                          </div>
+                                          <div className={`px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${
+                                              item.shift === 'night' ? 'bg-slate-100 text-slate-600' : 
+                                              item.shift === 'morning' ? 'bg-yellow-100 text-yellow-700' : 
+                                              'bg-orange-100 text-orange-700'
+                                          }`}>
+                                              {item.shift} Shift
+                                          </div>
+                                      </div>
+                                      {item.entry.totalTime && (
+                                          <div className="flex items-center gap-1 text-red-500 font-bold text-sm bg-red-50 px-2 py-1 rounded-lg">
+                                              <Clock size={14}/> {item.entry.totalTime}
+                                          </div>
+                                      )}
+                                  </div>
+                                  
+                                  <div className="text-slate-800 font-medium leading-relaxed mb-3 pl-4 border-l-2 border-blue-500">
+                                      {item.entry.description}
+                                  </div>
+
+                                  {(item.entry.spareParts || item.entry.notes) && (
+                                      <div className="flex gap-4 mt-4 pt-4 border-t border-slate-100">
+                                          {item.entry.spareParts && (
+                                              <div className="flex-1">
+                                                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Settings size={12}/> Parts Used</div>
+                                                  <div className="text-sm text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 whitespace-pre-wrap">{item.entry.spareParts}</div>
+                                              </div>
+                                          )}
+                                          {item.entry.notes && (
+                                              <div className="flex-1">
+                                                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Info size={12}/> Notes</div>
+                                                  <div className="text-sm text-slate-600 italic bg-yellow-50/50 p-2 rounded border border-yellow-100">{item.entry.notes}</div>
+                                              </div>
+                                          )}
+                                      </div>
+                                  )}
+                              </div>
+                          ))}
+                      </div>
+                  ) : (
+                      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                          <div className="bg-slate-100 p-4 rounded-full mb-4"><Database size={32}/></div>
+                          <p className="font-medium">No history found for this machine.</p>
+                      </div>
+                  )}
+              </div>
+          </div>
+        </div>
+      )}
 
       {settingsOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">

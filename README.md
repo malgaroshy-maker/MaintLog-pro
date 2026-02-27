@@ -20,6 +20,13 @@
 - **Image Generation:** Visualize maintenance scenarios or concepts using integrated Gemini/Imagen models.
 - **Thinking Budget:** Configurable "reasoning" capacity for complex problem solving (Gemini 2.5/3.0).
 
+### 📊 Analytics & History
+- **Analytics Dashboard:** Real-time insights into your maintenance operations.
+  - **Total Downtime:** Aggregate downtime tracking.
+  - **Shift Distribution:** Visual breakdown of downtime by shift.
+  - **Top Performers:** Identify the top 5 machines with the most interventions and the most frequently used spare parts.
+- **Machine History:** View a complete timeline of all maintenance activities for any specific machine directly from the log grid.
+
 ### 🛠️ Smart Tools
 - **Time Calculator:** Input multiple intervals (e.g., `09:00-10:30 + 14:00-15:00`) to auto-calculate total downtime.
 - **Spare Parts Database:** Manage a local inventory of parts. Search, select, and track quantities used per intervention.
@@ -32,7 +39,7 @@
 - **Cloud Sync (via File System):** Sync your database to Google Drive/OneDrive by saving to a local file that your cloud client syncs.
 
 ## 🛠️ Tech Stack
-- **Framework:** React 19 + Vite
+- **Framework:** React 18 + Vite
 - **Language:** TypeScript
 - **Styling:** Tailwind CSS
 - **Icons:** Lucide React

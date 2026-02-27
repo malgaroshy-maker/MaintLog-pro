@@ -72,6 +72,14 @@ export interface AppSettings {
   lastSyncTime?: string;
 }
 
+export interface AnalyticsData {
+  totalDowntime: number;
+  downtimeByShift: { night: number; morning: number; evening: number };
+  topMachines: { name: string; count: number; time: number }[];
+  topParts: { name: string; count: number }[];
+  totalEntries: number;
+}
+
 export const INITIAL_ENTRY: LogEntry = {
   id: '',
   machine: '',

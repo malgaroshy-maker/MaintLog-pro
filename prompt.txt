@@ -25,6 +25,7 @@ The app mimics a physical daily report sheet used in factories. It tracks mainte
 -   **Toolbar:** A floating or fixed bar containing global actions:
     -   Save Data.
     -   Clear Current Form.
+    -   **Analytics Dashboard:** A modal showing statistical insights (Downtime, Top Machines, etc.).
     -   Export to CSV.
     -   Print/PDF Generation.
     -   App Settings.
@@ -43,7 +44,9 @@ The app mimics a physical daily report sheet used in factories. It tracks mainte
 
 #### 4. The Log Grid (Data Entry)
 Each shift contains a dynamic table/grid where users log tasks. Columns include:
-1.  **Machine:** Auto-complete input. Must include a "Machine Manager" feature to Add/Edit/Delete machines in the database.
+1.  **Machine:** Auto-complete input. Must include:
+    -   **Machine Manager:** Add/Edit/Delete machines.
+    -   **History View:** A button to view all past logs for the selected machine.
 2.  **Line:** (Optional/Configurable) Selector for Production Line number.
 3.  **Work Description:** Text area for details. Should support Rich Text and Auto-Complete suggestions.
 4.  **Total Time:** Read-only field. Must include a **Time Calculator** tool that allows users to input start/end times (e.g., 10:00-11:00) and auto-calculates the duration.
